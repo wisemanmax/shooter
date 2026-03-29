@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drop Zone</title>
+<link rel="stylesheet" href="/src/ui/styles.css">
+</head>
+<body>
+<!-- Main Menu -->
+<div id="main-menu">
+  <h1>DROP ZONE</h1>
+  <p class="sub">Hero-based Battle Royale</p>
+  <div class="menu-buttons">
+    <button id="btn-play" class="menu-btn">PLAY</button>
+    <button id="btn-private" class="menu-btn">PRIVATE MATCH</button>
+    <button id="btn-firing-range" class="menu-btn">FIRING RANGE</button>
+    <button id="btn-settings" class="menu-btn secondary">SETTINGS</button>
+  </div>
+</div>
+
+<!-- Hero Select -->
+<div id="hero-select" class="hidden">
+  <h1>Select Legend</h1>
+  <p class="sub">Choose your hero — Click to lock in</p>
+  <div class="hero-grid" id="hero-grid"></div>
+</div>
+
+<!-- Settings Panel -->
+<div id="settings-panel" class="hidden"></div>
+
+<!-- Match Results -->
+<div id="match-results" class="hidden"></div>
+
+<!-- All HUD elements -->
+<div id="match-banner"><h2 id="mb-text"></h2><div class="bsub" id="mb-sub"></div></div>
+<div id="callout"></div>
+<div id="downed-ov"><h2>DOWNED</h2><div class="bl-bar"><div class="bl-f" id="bl-f"></div></div><div class="ri" id="ri-t">Waiting…</div></div>
+<div id="spec-bar">SPECTATING <span id="sp-n">—</span></div>
+<div id="squad-hud"></div>
+<div id="match-info"><div id="sq-alive">5 Squads</div><div id="ring-t">—</div></div>
+<div id="abil-hud">
+  <div class="ab-slot" id="ab-q"><div class="ab-key">Q</div><div class="ab-ic">—</div><div class="ab-cd" id="ab-q-cd" style="height:0"></div><div class="ab-cd-txt" id="ab-q-txt"></div></div>
+  <div class="ab-slot ult" id="ab-z"><div class="ab-key">Z</div><div class="ab-ic">—</div><div class="ab-cd" id="ab-z-cd" style="height:0"></div><div class="ab-cd-txt" id="ab-z-txt"></div></div>
+</div>
+<div id="passive-ind"></div>
+<div id="abil-flash"></div>
+<div id="inv-bar"></div><div id="ammo-hud"></div>
+<div id="wep-hud"><div id="w-n">—</div><div id="w-a">0</div><div id="w-rb"><div id="w-rf"></div></div></div>
+<div id="vitals"><div class="vr"><div class="vi">S</div><div class="vb"><div class="vf sh" id="sf"></div></div><div class="vv" id="sv">0</div></div><div class="vr"><div class="vi">H</div><div class="vb"><div class="vf hp" id="hf"></div></div><div class="vv" id="hv">100</div></div></div>
+<div id="interact"><span>[E]</span> —</div>
+<div id="rev-bar"><div class="rbl">REVIVING</div><div class="rbb"><div class="rbf" id="rb-f"></div></div></div>
+<div id="xh"><div class="xd"></div><div class="xa t"></div><div class="xa b"></div><div class="xa l"></div><div class="xa r"></div></div>
+<div id="hitm"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#e8c547" stroke-width="2.5"><line x1="6" y1="6" x2="10" y2="10"/><line x1="18" y1="6" x2="14" y2="10"/><line x1="6" y1="18" x2="10" y2="14"/><line x1="18" y1="18" x2="14" y2="14"/></svg></div>
+<div id="vig-d"></div><div id="vig-sb"></div><div id="vig-ring"></div><div id="dmg-c"></div><div id="kf"></div>
+<div id="minimap"><canvas id="mm" width="130" height="130"></canvas></div>
+<div id="dbg"><div><span class="dl">SPD </span><span class="dv" id="d-s">0</span></div><div><span class="dl">HERO </span><span class="dv" id="d-h">—</span></div><div><span class="dl">RING </span><span class="dv" id="d-r">—</span></div><div><span class="dl">FPS </span><span class="dv" id="d-f">0</span></div></div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
