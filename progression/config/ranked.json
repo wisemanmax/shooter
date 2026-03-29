@@ -1,0 +1,101 @@
+{
+  "_comment": "Ranked system configuration. Divisions are ordered lowest to highest. RP = Ranked Points. Adjust thresholds and scoring without code changes.",
+
+  "enabled": true,
+  "season": 1,
+  "splitCount": 2,
+  "currentSplit": 1,
+
+  "divisions": [
+    { "id": "bronze",    "name": "Bronze",    "tiers": 4, "rpFloor": 0,    "rpCeiling": 999,   "entryCost": 0,   "color": "#cd7f32", "demotionShield": true },
+    { "id": "silver",    "name": "Silver",    "tiers": 4, "rpFloor": 1000, "rpCeiling": 2799,  "entryCost": 12,  "color": "#c0c0c0", "demotionShield": true },
+    { "id": "gold",      "name": "Gold",      "tiers": 4, "rpFloor": 2800, "rpCeiling": 4999,  "entryCost": 24,  "color": "#ffd700", "demotionShield": false },
+    { "id": "platinum",  "name": "Platinum",  "tiers": 4, "rpFloor": 5000, "rpCeiling": 7499,  "entryCost": 36,  "color": "#5ab8f5", "demotionShield": false },
+    { "id": "diamond",   "name": "Diamond",   "tiers": 4, "rpFloor": 7500, "rpCeiling": 9999,  "entryCost": 48,  "color": "#b9f2ff", "demotionShield": false },
+    { "id": "master",    "name": "Master",    "tiers": 1, "rpFloor": 10000,"rpCeiling": 14999, "entryCost": 60,  "color": "#9b59b6", "demotionShield": false },
+    { "id": "predator",  "name": "Predator",  "tiers": 1, "rpFloor": 15000,"rpCeiling": 999999,"entryCost": 75,  "color": "#e8c547", "demotionShield": false,
+      "_note": "Top 750 players by RP. Threshold is dynamic." }
+  ],
+
+  "tierRP": {
+    "_comment": "RP range within each tier. E.g., Bronze 4 = 0-249, Bronze 3 = 250-499, etc.",
+    "rpPerTier": 250,
+    "tierLabels": ["IV", "III", "II", "I"]
+  },
+
+  "scoring": {
+    "_comment": "RP earned per match. entryCost is deducted at match start. All other values are additive.",
+
+    "placement": {
+      "_comment": "RP bonus based on final placement. Key = minimum placement rank to qualify.",
+      "1":  125,
+      "2":  95,
+      "3":  70,
+      "5":  55,
+      "8":  40,
+      "10": 30,
+      "13": 10
+    },
+
+    "kills": {
+      "rpPerKill": 10,
+      "rpPerAssist": 5,
+      "killCap": 6,
+      "_comment": "Kill RP is capped at killCap kills+assists per match. Prevents kill-farming."
+    },
+
+    "participation": {
+      "rpPerKnock": 5,
+      "rpPerRevive": 5,
+      "rpPerRespawn": 10,
+      "rpPerScan": 2,
+      "_comment": "Uncapped participation RP rewards team play."
+    },
+
+    "bonuses": {
+      "squadWipeBonus": 50,
+      "winStreak2": 10,
+      "winStreak3": 25
+    }
+  },
+
+  "matchmaking": {
+    "_comment": "Ranked matchmaking groups players by division bracket.",
+    "brackets": [
+      { "label": "Bronze-Silver", "divisions": ["bronze", "silver"] },
+      { "label": "Gold-Platinum", "divisions": ["gold", "platinum"] },
+      { "label": "Diamond+",     "divisions": ["diamond", "master", "predator"] }
+    ],
+    "maxRPSpread": 1500,
+    "_comment_2": "Players in the same match should be within maxRPSpread RP of each other."
+  },
+
+  "decay": {
+    "_comment": "Inactivity decay for Diamond+ players.",
+    "enabled": true,
+    "gracePeriodDays": 7,
+    "rpPerDay": 50,
+    "minimumDivision": "diamond",
+    "floorRP": 7500,
+    "_comment_2": "Decay stops at the floor of the minimum division."
+  },
+
+  "splitReset": {
+    "_comment": "Between splits, RP is soft-reset. Players keep a fraction of earned RP.",
+    "retainFraction": 0.5,
+    "minimumRP": 0,
+    "placementMatches": 5,
+    "_comment_2": "Players play 5 placement matches at the start of each split. RP gains are doubled during placement."
+  },
+
+  "rewards": {
+    "_comment": "End-of-season rewards by highest achieved division.",
+    "bronze":   { "badge": "badge_ranked_bronze_s1" },
+    "silver":   { "badge": "badge_ranked_silver_s1" },
+    "gold":     { "badge": "badge_ranked_gold_s1",     "banner": "banner_ranked_gold_s1" },
+    "platinum": { "badge": "badge_ranked_plat_s1",     "banner": "banner_ranked_plat_s1" },
+    "diamond":  { "badge": "badge_ranked_diamond_s1",  "banner": "banner_ranked_diamond_s1", "skin": "skin_ranked_diamond_s1" },
+    "master":   { "badge": "badge_ranked_master_s1",   "banner": "banner_ranked_master_s1",  "skin": "skin_ranked_master_s1" },
+    "predator": { "badge": "badge_ranked_pred_s1",     "banner": "banner_ranked_pred_s1",    "skin": "skin_ranked_pred_s1", "trail": "trail_pred_s1" }
+  }
+}

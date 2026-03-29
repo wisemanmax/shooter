@@ -1,0 +1,49 @@
+{
+  "_comment": "Season configuration — edit values here, restart server. No code changes needed.",
+
+  "currentSeason": 1,
+  "seasonName": "Season 1: First Drop",
+  "seasonStart": "2026-04-01T00:00:00Z",
+  "seasonEnd": "2026-06-30T23:59:59Z",
+
+  "xp": {
+    "_comment": "XP curve: xpForLevel(n) = baseXP + (n-1) * xpPerLevel. Level 1 requires 0 XP.",
+    "baseXP": 1000,
+    "xpPerLevel": 250,
+    "maxLevel": 500,
+
+    "matchRewards": {
+      "_comment": "XP awarded per match based on outcome and performance.",
+      "participation": 50,
+      "survivalPerMinute": 15,
+      "killXP": 60,
+      "assistXP": 30,
+      "damageXPPer100": 10,
+      "reviveXP": 50,
+      "respawnXP": 75,
+      "winXP": 300,
+      "top3XP": 150,
+      "top5XP": 75,
+      "challengeCompletionXP": 0
+    },
+
+    "bonuses": {
+      "firstMatchOfDay": 200,
+      "squadBonus": 1.1,
+      "premiumMultiplier": 1.5
+    }
+  },
+
+  "prestige": {
+    "_comment": "After hitting maxLevel, players can prestige to reset level and earn prestige badges.",
+    "enabled": true,
+    "maxPrestige": 5,
+    "resetLevel": true,
+    "keepUnlocks": true
+  },
+
+  "matchHistory": {
+    "maxStoredMatches": 50,
+    "retentionDays": 90
+  }
+}

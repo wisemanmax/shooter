@@ -1,0 +1,54 @@
+{
+  "_comment": "Battle pass config. Rewards reference cosmetic IDs from the cosmetics registry. Add tiers by extending the array. rewardType values: 'skin', 'banner', 'badge', 'quip', 'currency', 'xp_boost', 'loot_box'. Premium rewards only unlock for players who purchased the pass.",
+
+  "season": 1,
+  "maxTier": 100,
+  "xpPerTier": 1500,
+
+  "freeTiers": {
+    "_comment": "Rewards available to all players at each tier milestone.",
+    "1":   { "rewardType": "currency",  "rewardId": "crafting_metals", "amount": 50 },
+    "5":   { "rewardType": "badge",     "rewardId": "badge_s1_5" },
+    "10":  { "rewardType": "banner",    "rewardId": "banner_rookie" },
+    "15":  { "rewardType": "currency",  "rewardId": "crafting_metals", "amount": 100 },
+    "20":  { "rewardType": "quip",      "rewardId": "quip_forge_1" },
+    "25":  { "rewardType": "loot_box",  "rewardId": "loot_box_rare" },
+    "30":  { "rewardType": "badge",     "rewardId": "badge_s1_30" },
+    "40":  { "rewardType": "currency",  "rewardId": "crafting_metals", "amount": 150 },
+    "50":  { "rewardType": "banner",    "rewardId": "banner_veteran" },
+    "60":  { "rewardType": "currency",  "rewardId": "crafting_metals", "amount": 200 },
+    "70":  { "rewardType": "badge",     "rewardId": "badge_s1_70" },
+    "80":  { "rewardType": "loot_box",  "rewardId": "loot_box_epic" },
+    "90":  { "rewardType": "currency",  "rewardId": "crafting_metals", "amount": 300 },
+    "100": { "rewardType": "badge",     "rewardId": "badge_s1_100" }
+  },
+
+  "premiumTiers": {
+    "_comment": "Additional rewards for battle pass holders. These stack with free rewards.",
+    "1":   { "rewardType": "skin",      "rewardId": "skin_forge_tactical" },
+    "5":   { "rewardType": "xp_boost",  "rewardId": "xp_boost_10pct", "duration_hours": 24 },
+    "10":  { "rewardType": "skin",      "rewardId": "skin_wraith_spectral" },
+    "15":  { "rewardType": "quip",      "rewardId": "quip_seer_1" },
+    "20":  { "rewardType": "skin",      "rewardId": "skin_lifeline_medic" },
+    "25":  { "rewardType": "banner",    "rewardId": "banner_premium_s1" },
+    "30":  { "rewardType": "skin",      "rewardId": "skin_catalyst_ferrous" },
+    "35":  { "rewardType": "loot_box",  "rewardId": "loot_box_legendary" },
+    "40":  { "rewardType": "quip",      "rewardId": "quip_wraith_1" },
+    "45":  { "rewardType": "xp_boost",  "rewardId": "xp_boost_25pct", "duration_hours": 48 },
+    "50":  { "rewardType": "skin",      "rewardId": "skin_forge_inferno", "_note": "Legendary mid-season skin" },
+    "60":  { "rewardType": "banner",    "rewardId": "banner_animated_s1" },
+    "70":  { "rewardType": "currency",  "rewardId": "premium_currency", "amount": 200 },
+    "80":  { "rewardType": "skin",      "rewardId": "skin_seer_oracle" },
+    "90":  { "rewardType": "currency",  "rewardId": "premium_currency", "amount": 300 },
+    "100": { "rewardType": "skin",      "rewardId": "skin_wraith_voidwalker", "_note": "Legendary season finale skin" },
+
+    "prestige_1": { "rewardType": "badge", "rewardId": "badge_s1_prestige_1", "_note": "Tier 100+ rewards cycle" },
+    "prestige_2": { "rewardType": "currency", "rewardId": "crafting_metals", "amount": 100 }
+  },
+
+  "premiumPrice": {
+    "currency": "premium_currency",
+    "amount": 950,
+    "_note": "Purchase unlocks premium track for the current season"
+  }
+}

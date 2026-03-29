@@ -1,0 +1,15 @@
+{
+  "name": "dropzone",
+  "version": "0.9.0",
+  "description": "Hero-based battle royale prototype — playable builds, multiplayer server, progression systems",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "serve": "npx serve client/builds",
+    "play": "npx serve client/builds -o /v6-heroes.html"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

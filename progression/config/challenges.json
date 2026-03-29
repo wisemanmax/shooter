@@ -1,0 +1,45 @@
+{
+  "_comment": "Challenge definitions. The server picks from these pools each day/week. Add new challenges by appending to the arrays — no code changes needed.",
+
+  "daily": {
+    "count": 3,
+    "refreshHourUTC": 0,
+    "rerollsPerDay": 1,
+    "pool": [
+      { "id": "daily_kills_3",       "name": "Sharp Shooter",        "desc": "Get 3 kills",                    "stat": "kills",          "target": 3,    "xp": 500 },
+      { "id": "daily_kills_5",       "name": "Eliminator",           "desc": "Get 5 kills",                    "stat": "kills",          "target": 5,    "xp": 750 },
+      { "id": "daily_damage_500",    "name": "Damage Dealer",        "desc": "Deal 500 damage",                "stat": "damageDealt",    "target": 500,  "xp": 500 },
+      { "id": "daily_damage_1000",   "name": "Heavy Hitter",         "desc": "Deal 1000 damage",               "stat": "damageDealt",    "target": 1000, "xp": 750 },
+      { "id": "daily_top5",          "name": "Survivor",             "desc": "Finish top 5",                   "stat": "top5Finishes",   "target": 1,    "xp": 400 },
+      { "id": "daily_top3",          "name": "Contender",            "desc": "Finish top 3",                   "stat": "top3Finishes",   "target": 1,    "xp": 600 },
+      { "id": "daily_win",           "name": "Champion",             "desc": "Win a match",                    "stat": "wins",           "target": 1,    "xp": 1000 },
+      { "id": "daily_revives_2",     "name": "Team Player",          "desc": "Revive 2 teammates",             "stat": "revives",        "target": 2,    "xp": 500 },
+      { "id": "daily_headshots_3",   "name": "Precision",            "desc": "Get 3 headshot knocks",          "stat": "headshotKnocks", "target": 3,    "xp": 600 },
+      { "id": "daily_matches_3",     "name": "Warm Up",              "desc": "Play 3 matches",                 "stat": "matchesPlayed",  "target": 3,    "xp": 400 },
+      { "id": "daily_loot_10",       "name": "Scavenger",            "desc": "Loot 10 items",                  "stat": "itemsLooted",    "target": 10,   "xp": 350 },
+      { "id": "daily_ability_3",     "name": "Tactician",            "desc": "Use tactical ability 3 times",   "stat": "tacticalUses",   "target": 3,    "xp": 400 },
+      { "id": "daily_survive_8min",  "name": "Endurance",            "desc": "Survive 8 minutes in one match", "stat": "longestSurvivalMinutes", "target": 8, "xp": 500 },
+
+      { "id": "daily_hero_forge",    "name": "Forge Specialist",     "desc": "Play 2 matches as Forge",        "stat": "matchesAsForge",    "target": 2, "xp": 400, "heroFilter": "forge" },
+      { "id": "daily_hero_wraith",   "name": "Wraith Specialist",    "desc": "Play 2 matches as Wraith",       "stat": "matchesAsWraith",   "target": 2, "xp": 400, "heroFilter": "wraith" },
+      { "id": "daily_hero_seer",     "name": "Seer Specialist",      "desc": "Play 2 matches as Seer",         "stat": "matchesAsSeer",     "target": 2, "xp": 400, "heroFilter": "seer" },
+      { "id": "daily_hero_lifeline", "name": "Lifeline Specialist",  "desc": "Play 2 matches as Lifeline",     "stat": "matchesAsLifeline", "target": 2, "xp": 400, "heroFilter": "lifeline" },
+      { "id": "daily_hero_catalyst", "name": "Catalyst Specialist",  "desc": "Play 2 matches as Catalyst",     "stat": "matchesAsCatalyst", "target": 2, "xp": 400, "heroFilter": "catalyst" }
+    ]
+  },
+
+  "weekly": {
+    "count": 5,
+    "refreshDayUTC": 1,
+    "pool": [
+      { "id": "weekly_kills_20",     "name": "Weekly Warrior",       "desc": "Get 20 kills this week",         "stat": "kills",          "target": 20,   "xp": 3000 },
+      { "id": "weekly_wins_3",       "name": "Triple Crown",         "desc": "Win 3 matches this week",        "stat": "wins",           "target": 3,    "xp": 5000 },
+      { "id": "weekly_damage_5000",  "name": "Damage Machine",       "desc": "Deal 5000 damage this week",     "stat": "damageDealt",    "target": 5000, "xp": 3000 },
+      { "id": "weekly_matches_15",   "name": "Dedicated",            "desc": "Play 15 matches this week",      "stat": "matchesPlayed",  "target": 15,   "xp": 2500 },
+      { "id": "weekly_top5_5",       "name": "Consistent",           "desc": "Finish top 5 five times",        "stat": "top5Finishes",   "target": 5,    "xp": 3000 },
+      { "id": "weekly_revives_10",   "name": "Guardian Angel",       "desc": "Revive 10 teammates",            "stat": "revives",        "target": 10,   "xp": 3500 },
+      { "id": "weekly_heroes_3",     "name": "Versatile",            "desc": "Play matches with 3 different heroes", "stat": "uniqueHeroes", "target": 3, "xp": 2000 },
+      { "id": "weekly_ult_10",       "name": "Ultimate Force",       "desc": "Use ultimate ability 10 times",  "stat": "ultimateUses",   "target": 10,   "xp": 2500 }
+    ]
+  }
+}
