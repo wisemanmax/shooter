@@ -597,6 +597,7 @@ export const AbilSys = {
                   e.takeDmg(as.ult.data.damage, ent, false);
                 }
               }
+              Ev.emit('ability:explosion', { pos: as.ult.data.target.clone() });
             }
           }
           break;

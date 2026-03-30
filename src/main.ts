@@ -10,6 +10,9 @@ import { Input } from './core/input';
 import { Col } from './core/collision';
 import { Ev } from './utils/events';
 import { Audio } from './shell/audio';
+import { postFX } from './shell/postprocessing';
+import { particles } from './shell/particles';
+import { screenShake } from './shell/screenshake';
 import { HEROES, AbilSys } from './combat/abilities';
 import { WEAPON_DEFS, applyRarity } from './combat/weapons';
 import { Entity } from './entities/entity';
@@ -62,6 +65,12 @@ scene.background = new THREE.Color(0x07070d);
 
 const camera = new THREE.PerspectiveCamera(90, innerWidth / innerHeight, 0.1, 300);
 scene.add(camera);
+
+// Post-processing
+postFX.init(renderer, scene, camera);
+
+// Particle system
+particles.init(scene);
 
 // Viewmodel group (attached to camera)
 const vmGroup = new THREE.Group();
@@ -286,12 +295,23 @@ Ev.on('entity:damaged', (d: any) => {
   if (!player) return;
   if (d.entity === player) {
     hitTimers.damage = 0.2;
-    if (d.sb) hitTimers.shieldBreak = 0.3;
+    postFX.onDamage();
+    screenShake.addDamageShake();
+    if (d.sb) {
+      hitTimers.shieldBreak = 0.3;
+      postFX.onShieldBreak();
+    }
   }
   if (d.attacker === player) {
     hitTimers.hit = 0.12;
-    if (d.sd > 0) spawnDamageNumber(d.entity.pos, d.sd, 'sh');
-    if (d.hd > 0) spawnDamageNumber(d.entity.pos, d.hd, d.isHead ? 'hd' : 'hp');
+    if (d.sd > 0) {
+      spawnDamageNumber(d.entity.pos, d.sd, 'sh');
+      particles.emitShieldHit(d.entity.pos);
+    }
+    if (d.hd > 0) {
+      spawnDamageNumber(d.entity.pos, d.hd, d.isHead ? 'hd' : 'hp');
+      particles.emitBloodHit(d.entity.pos);
+    }
     Audio.play(d.isHead ? 'hit_head' : d.sd > 0 ? 'hit_shield' : 'hit_flesh');
     if (d.sb) Audio.play('shield_break');
   }
@@ -321,6 +341,14 @@ Ev.on('weapon:fire', (d: any) => {
   spawnTracer(d.origin, d.end);
   muzzleFlash.intensity = 2.5;
   muzzleFlashTimer = 0.05;
+  // Muzzle flash particles
+  const fireDir = d.end.clone().sub(d.origin).normalize();
+  particles.emitMuzzleFlash(d.origin.clone().add(fireDir.clone().multiplyScalar(0.5)), fireDir);
+  screenShake.addFireShake();
+  // Wall impact particles (if hit wasn't an entity)
+  if (d.hitWall && d.hitNormal) {
+    particles.emitWallImpact(d.end, d.hitNormal);
+  }
 });
 
 Ev.on('weapon:swap', () => {
@@ -336,6 +364,11 @@ Ev.on('ability:used', (d: any) => {
   Audio.play(d.slot === 'tac' ? 'ability_tac' : 'ability_ult');
 });
 Ev.on('consumable:used', () => Audio.play('consumable'));
+
+Ev.on('ability:explosion', (d: any) => {
+  particles.emitExplosion(d.pos);
+  if (player) screenShake.addExplosionShake(player.pos.distanceTo(d.pos));
+});
 
 let ringWarned = false;
 
@@ -358,6 +391,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
+  postFX.resize(innerWidth, innerHeight);
 });
 
 /* ═══════════════════════════════════════════════════════════════
@@ -484,15 +518,23 @@ function gameLoop(now: number): void {
   if (player.life === 2 && !Spec.on) Spec.enter(allEntities.filter(e => e.squadId === player!.squadId));
   if (Spec.on && Input.justPressed('Digit1')) Spec.cycle();
 
+  // ── Screen shake ──
+  screenShake.tick(dt);
+  postFX.tick(dt);
+
   // ── Camera ──
   if (!Spec.on) {
-    camera.position.copy(player.eye);
-    camera.quaternion.setFromEuler(new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ'));
+    camera.position.copy(player.eye).add(screenShake.offset);
+    camera.quaternion.setFromEuler(new THREE.Euler(
+      player.pitch, player.yaw, screenShake.rollOffset, 'YXZ',
+    ));
   } else {
     const target = Spec.target;
     if (target) {
-      camera.position.copy(target.eye);
-      camera.quaternion.setFromEuler(new THREE.Euler(target.pitch, target.yaw, 0, 'YXZ'));
+      camera.position.copy(target.eye).add(screenShake.offset);
+      camera.quaternion.setFromEuler(new THREE.Euler(
+        target.pitch, target.yaw, screenShake.rollOffset, 'YXZ',
+      ));
     }
   }
 
@@ -510,9 +552,10 @@ function gameLoop(now: number): void {
     vmGroup.position.y = -0.28;
   }
 
-  // ── Sync models + tracers ──
+  // ── Sync models + tracers + particles ──
   for (const e of allEntities) e.syncModel();
   tickTracers(dt);
+  particles.tick(dt);
   updateDamageNumbers(camera);
 
   // ── HUD ──
@@ -577,8 +620,8 @@ function gameLoop(now: number): void {
     cx: ring?.cx ?? 0, cz: ring?.cz ?? 0, currentR: ring?.currentR ?? SIM.MAP_RADIUS,
   }, SIM.MAP_RADIUS);
 
-  // ── Render ──
-  renderer.render(scene, camera);
+  // ── Render (post-processing pipeline) ──
+  postFX.render();
   Input.endFrame();
 }
 

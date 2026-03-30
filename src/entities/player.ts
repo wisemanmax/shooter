@@ -240,7 +240,9 @@ export function tickPlayerFire(
         const hit = col.ray(origin, dir, aw.def.range);
         const end = hit ? hit.point.clone() : origin.clone().add(dir.multiplyScalar(aw.def.range));
 
-        Ev.emit('weapon:fire', { weaponId: aw.def.id, origin, end });
+        const hitWall = hit && !hit.object.userData.entity;
+        const hitNormal = hitWall && hit.face ? hit.face.normal.clone() : null;
+        Ev.emit('weapon:fire', { weaponId: aw.def.id, origin, end, hitWall, hitNormal });
 
         if (hit?.object.userData.entity) {
           const target = hit.object.userData.entity as Entity;
