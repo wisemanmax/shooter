@@ -456,20 +456,20 @@ export function updateHUD(state: HUDState, dt: number): void {
   toggleClass(refs.specBar, 'sp-show', 'show', state.isSpectating);
   if (state.isSpectating) setText(refs.specName, 'sp-n', state.spectatingName);
 
-  // Crosshair bloom — spread the arms proportionally
-  if (state.weaponMaxBloom > 0) {
-    const spreadPx = Math.round(4 + (state.weaponBloom / state.weaponMaxBloom) * 14);
-    setStyle(refs.crosshair, 'xh-gap-t', '--gap-t', `-${spreadPx + 6}px`);
-    setStyle(refs.crosshair, 'xh-gap-b', '--gap-b', `${spreadPx}px`);
-    setStyle(refs.crosshair, 'xh-gap-l', '--gap-l', `-${spreadPx + 6}px`);
-    setStyle(refs.crosshair, 'xh-gap-r', '--gap-r', `${spreadPx}px`);
-    // Apply via direct style since CSS vars need the elements
-    const arms = refs.crosshair.querySelectorAll('.xa');
-    if (arms.length >= 4) {
-      (arms[0] as HTMLElement).style.top = `calc(50% - ${spreadPx + 6}px)`;
-      (arms[1] as HTMLElement).style.top = `calc(50% + ${spreadPx}px)`;
-      (arms[2] as HTMLElement).style.left = `calc(50% - ${spreadPx + 6}px)`;
-      (arms[3] as HTMLElement).style.left = `calc(50% + ${spreadPx}px)`;
+  // Crosshair bloom — spread the arms proportionally to weapon bloom
+  {
+    const bloomFrac = state.weaponMaxBloom > 0 ? state.weaponBloom / state.weaponMaxBloom : 0;
+    const spreadPx = Math.round(4 + bloomFrac * 14); // 4px at rest, 18px at max bloom
+    const key = 'xh-bloom-' + spreadPx;
+    if (prev['xh-bloom'] !== key) {
+      prev['xh-bloom'] = key;
+      const arms = refs.crosshair.querySelectorAll('.xa');
+      if (arms.length >= 4) {
+        (arms[0] as HTMLElement).style.top = `calc(50% - ${spreadPx + 6}px)`;   // top arm
+        (arms[1] as HTMLElement).style.top = `calc(50% + ${spreadPx}px)`;        // bottom arm
+        (arms[2] as HTMLElement).style.left = `calc(50% - ${spreadPx + 6}px)`;   // left arm
+        (arms[3] as HTMLElement).style.left = `calc(50% + ${spreadPx}px)`;       // right arm
+      }
     }
   }
 
