@@ -380,29 +380,64 @@ export class Entity {
 
     const g = new THREE.Group();
 
-    // Body cylinder — matches v6: CylinderGeometry(.25, .3, 1.2, 8), y=0.6
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.25, 0.3, 1.2, 8),
+    // Torso — main body
+    const torso = new THREE.Mesh(
+      new THREE.BoxGeometry(0.45, 0.65, 0.3),
       this.bMat,
     );
-    body.position.y = 0.6;
-    body.castShadow = true;
-    g.add(body);
+    torso.position.y = 0.85;
+    torso.castShadow = true;
+    g.add(torso);
 
-    // Head sphere — matches v6: SphereGeometry(.2, 8, 6), y=1.45
+    // Legs — two thin boxes
+    const legMat = new THREE.MeshStandardMaterial({ color: teamColor, roughness: 0.6 });
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.5, 0.16), legMat);
+    legL.position.set(-0.1, 0.25, 0);
+    legL.castShadow = true;
+    g.add(legL);
+    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.5, 0.16), legMat);
+    legR.position.set(0.1, 0.25, 0);
+    legR.castShadow = true;
+    g.add(legR);
+
+    // Shoulders
+    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.18), this.bMat);
+    shoulderL.position.set(-0.29, 1.1, 0);
+    g.add(shoulderL);
+    const shoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.18), this.bMat);
+    shoulderR.position.set(0.29, 1.1, 0);
+    g.add(shoulderR);
+
+    // Head
     const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 8, 6),
+      new THREE.SphereGeometry(0.18, 8, 6),
       this.hMat,
     );
-    head.position.y = 1.45;
+    head.position.y = 1.42;
     head.castShadow = true;
     g.add(head);
 
-    // Attach entity reference for raycasting hit detection
-    body.userData = { entity: this, isHead: false };
+    // Hero-specific accent (visor/detail on head)
+    const HERO_ACCENT_COLORS: Record<string, number> = {
+      forge: 0xff6622, wraith: 0x9b59b6, seer: 0x5ab8f5,
+      lifeline: 0x5af5a6, catalyst: 0xf55a5a,
+    };
+    const accentColor = HERO_ACCENT_COLORS[heroId] ?? 0xe8c547;
+    const visor = new THREE.Mesh(
+      new THREE.BoxGeometry(0.24, 0.06, 0.2),
+      new THREE.MeshStandardMaterial({
+        color: accentColor, emissive: accentColor,
+        emissiveIntensity: 0.6, roughness: 0.2, metalness: 0.5,
+      }),
+    );
+    visor.position.set(0, 1.44, 0.08);
+    g.add(visor);
+
+    // Use torso as the body hit target (largest mesh for raycasting)
+    torso.userData = { entity: this, isHead: false };
     head.userData = { entity: this, isHead: true };
 
-    this.bodyM = body;
+    this.bodyM = torso;
     this.headM = head;
     this.mdl = g;
 
@@ -494,10 +529,48 @@ export class Entity {
       this.mdl.visible = false;
       return;
     }
-    this.mdl.visible = this.life !== LifeState.ELIMINATED && !this.dropping;
+
+    const wasVisible = this.mdl.visible;
+    const shouldShow = this.life !== LifeState.ELIMINATED && !this.dropping;
+
+    // Death animation: scale down and fade when transitioning to eliminated
+    if (wasVisible && !shouldShow && this.life === LifeState.ELIMINATED) {
+      // Start death shrink (handled over next few frames via _deathAnim)
+      (this as any)._deathAnim = 1.0;
+    }
+
+    if ((this as any)._deathAnim > 0) {
+      (this as any)._deathAnim -= 0.05;
+      const s = Math.max(0, (this as any)._deathAnim);
+      this.mdl.scale.setScalar(s);
+      this.bMat.opacity = s;
+      this.bMat.transparent = true;
+      this.hMat.opacity = s;
+      this.hMat.transparent = true;
+      if (s <= 0) {
+        this.mdl.visible = false;
+        this.mdl.scale.setScalar(1);
+        this.bMat.transparent = false;
+        this.bMat.opacity = 1;
+        this.hMat.transparent = false;
+        this.hMat.opacity = 1;
+        (this as any)._deathAnim = 0;
+      }
+    } else {
+      this.mdl.visible = shouldShow;
+      this.mdl.scale.setScalar(1);
+    }
+
     this.mdl.position.copy(this.pos);
     this.mdl.rotation.y = this.yaw;
-    this.mdl.rotation.z = this.life === LifeState.DOWNED ? 1.1 : 0;
+
+    // Downed: tilt and shrink slightly
+    if (this.life === LifeState.DOWNED) {
+      this.mdl.rotation.z = 1.1;
+      this.mdl.scale.setScalar(0.85);
+    } else if ((this as any)._deathAnim <= 0) {
+      this.mdl.rotation.z = 0;
+    }
 
     // Revealed highlight (Seer scan etc.)
     this.hMat.emissive.setHex(this._revealed ? 0x5ab8f5 : 0);

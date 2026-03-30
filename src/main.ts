@@ -109,6 +109,7 @@ const muzzleFlash = new THREE.PointLight(0xffaa33, 0, 5);
 camera.add(muzzleFlash);
 muzzleFlash.position.set(0.3, -0.1, -0.8);
 let muzzleFlashTimer = 0;
+let vmRecoilTimer = 0;
 
 // Tracer pool
 const tracerPool: { line: THREE.Line; timer: number }[] = [];
@@ -376,6 +377,7 @@ Ev.on('weapon:fire', (d: any) => {
   spawnTracer(d.origin, d.end);
   muzzleFlash.intensity = 2.5;
   muzzleFlashTimer = 0.05;
+  vmRecoilTimer = 0.1;
   // Muzzle flash particles
   const fireDir = d.end.clone().sub(d.origin).normalize();
   particles.emitMuzzleFlash(d.origin.clone().add(fireDir.clone().multiplyScalar(0.5)), fireDir);
@@ -639,13 +641,52 @@ function gameLoop(now: number): void {
   camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 8 * dt);
   camera.updateProjectionMatrix();
 
-  // ── Viewmodel ──
+  // ── Viewmodel animation ──
   vmGroup.visible = player.life === 0 && !Spec.on && !player.dropping && !player.onZip && !!player.activeWeapon;
-  if (aw?.reloading) {
-    const rp = 1 - aw.reloadTimer / aw.def.reloadTime;
-    vmGroup.position.y = -0.28 - Math.sin(rp * Math.PI) * 0.07;
-  } else {
-    vmGroup.position.y = -0.28;
+  {
+    // Base position
+    let vx = 0.3, vy = -0.28, vz = -0.55;
+    let rx = 0, ry = 0, rz = 0;
+
+    // Idle sway — subtle sinusoidal movement
+    const idleSwayX = Math.sin(time * 1.2) * 0.003;
+    const idleSwayY = Math.cos(time * 0.9) * 0.002;
+    vx += idleSwayX;
+    vy += idleSwayY;
+
+    // Sprint offset — weapon lowered and tilted
+    if (player.isSprint && player.hSpd > 3) {
+      vy -= 0.06;
+      vz -= 0.04;
+      rx = 0.15;
+      rz = -0.08;
+    }
+
+    // Walk bob — based on horizontal speed
+    if (player.hSpd > 0.5 && !player.isSprint) {
+      const bobFreq = Math.min(player.hSpd * 1.5, 8);
+      vx += Math.sin(time * bobFreq) * 0.004;
+      vy += Math.abs(Math.sin(time * bobFreq * 2)) * 0.003;
+    }
+
+    // Fire recoil kick — snaps back over ~100ms
+    if (vmRecoilTimer > 0) {
+      vmRecoilTimer -= dt;
+      const t = Math.max(0, vmRecoilTimer / 0.1);
+      vy += t * 0.015;
+      vz += t * 0.02;
+      rx -= t * 0.06;
+    }
+
+    // Reload bob
+    if (aw?.reloading) {
+      const rp = 1 - aw.reloadTimer / aw.def.reloadTime;
+      vy -= Math.sin(rp * Math.PI) * 0.07;
+      rx += Math.sin(rp * Math.PI) * 0.1;
+    }
+
+    vmGroup.position.set(vx, vy, vz);
+    vmGroup.rotation.set(rx, ry, rz);
   }
 
   // ── Sync models + tracers + particles ──

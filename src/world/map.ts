@@ -67,7 +67,20 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
   const mRamp  = new THREE.MeshStandardMaterial({ color: 0x222240, roughness: 0.8 });
   const mMetal = new THREE.MeshStandardMaterial({ color: 0x302818, roughness: 0.6 });
   const mCrate = new THREE.MeshStandardMaterial({ color: 0x2c2820, roughness: 0.6 });
-  const mAccent = new THREE.MeshStandardMaterial({ color: 0xe8c547, roughness: 0.3, metalness: 0.4 });
+  const mAccent = new THREE.MeshStandardMaterial({
+    color: 0xe8c547, roughness: 0.3, metalness: 0.4,
+    emissive: 0xe8c547, emissiveIntensity: 0.15,
+  });
+
+  // Add emissive accent strips to walls and platforms
+  const mWallAccent = new THREE.MeshStandardMaterial({
+    color: 0xe8c547, roughness: 0.3, metalness: 0.5,
+    emissive: 0xe8c547, emissiveIntensity: 0.4,
+  });
+  const mPlatAccent = new THREE.MeshStandardMaterial({
+    color: 0x5ab8f5, roughness: 0.3, metalness: 0.5,
+    emissive: 0x5ab8f5, emissiveIntensity: 0.3,
+  });
 
   /** Helper: place a box and register with collision */
   const box = (
@@ -112,7 +125,7 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
     grounds.push(m);
   };
 
-  // ── Ground plane with grid texture ──
+  // ── Ground plane with grid + bump texture ──
   const gridCanvas = document.createElement('canvas');
   gridCanvas.width = 512;
   gridCanvas.height = 512;
@@ -128,7 +141,30 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
   const gridTex = new THREE.CanvasTexture(gridCanvas);
   gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping;
   gridTex.repeat.set(22, 22);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x12121c, roughness: 0.92, map: gridTex });
+
+  // Procedural bump map for ground surface detail
+  const bumpCanvas = document.createElement('canvas');
+  bumpCanvas.width = 256;
+  bumpCanvas.height = 256;
+  const bCtx = bumpCanvas.getContext('2d')!;
+  bCtx.fillStyle = '#808080';
+  bCtx.fillRect(0, 0, 256, 256);
+  // Subtle noise pattern
+  for (let y = 0; y < 256; y += 2) {
+    for (let x = 0; x < 256; x += 2) {
+      const v = 120 + Math.random() * 16;
+      bCtx.fillStyle = `rgb(${v},${v},${v})`;
+      bCtx.fillRect(x, y, 2, 2);
+    }
+  }
+  const bumpTex = new THREE.CanvasTexture(bumpCanvas);
+  bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping;
+  bumpTex.repeat.set(22, 22);
+
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: 0x12121c, roughness: 0.92, map: gridTex,
+    bumpMap: bumpTex, bumpScale: 0.02,
+  });
   const ground = new THREE.Mesh(new THREE.BoxGeometry(200, 0.5, 200), groundMat);
   ground.position.set(0, -0.25, 0);
   ground.receiveShadow = true;
@@ -142,11 +178,18 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
   box(7, 0.3, 7, mPlat, [0, 8, 0]);
   for (const [x, z] of [[-7, -7], [7, -7], [-7, 7], [7, 7]] as [number, number][]) {
     box(0.5, 4.5, 0.5, mWall, [x, 2.25, z]);
+    // Gold accent strip on pillars
+    box(0.08, 4.5, 0.55, mWallAccent, [x + 0.28, 2.25, z], false);
   }
   ramp(9, 4.5, 3.5, mRamp, [0, 0, 11], 0);
   ramp(7, 3.5, 2.5, mRamp, [0, 4.5, -7], Math.PI);
   box(5, 1, 0.3, mMetal, [-3, 5, 5]);
   box(5, 1, 0.3, mMetal, [3, 5, -5]);
+  // Platform edge accent strips
+  box(16, 0.06, 0.06, mWallAccent, [0, 0.32, 8], false);
+  box(16, 0.06, 0.06, mWallAccent, [0, 0.32, -8], false);
+  box(12, 0.06, 0.06, mPlatAccent, [0, 4.62, 6], false);
+  box(12, 0.06, 0.06, mPlatAccent, [0, 4.62, -6], false);
   ziplines.push(new Zipline(scene, new THREE.Vector3(0, 8.5, 0), new THREE.Vector3(35, 2, 15)));
   ziplines.push(new Zipline(scene, new THREE.Vector3(-3, 8.5, -3), new THREE.Vector3(-5, 1, -45)));
   jumpPads.push(new JumpPad(scene, new THREE.Vector3(7, 0, 0), new THREE.Vector3(1, 0.5, 0)));
@@ -156,6 +199,9 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
   box(0.3, 3.5, 14, mWall, [-9, 1.75, -55]);
   box(0.3, 3.5, 14, mWall, [9, 1.75, -55]);
   box(18, 0.3, 14, mPlat, [0, 3.5, -55]);
+  // Bunker wall accent strips
+  box(0.08, 0.06, 14, mPlatAccent, [-9.18, 1.75, -55], false);
+  box(0.08, 0.06, 14, mPlatAccent, [9.18, 1.75, -55], false);
   box(3, 1.3, 0.3, mMetal, [0, 0.65, -52]);
   box(3, 1.3, 0.3, mMetal, [-4, 0.65, -58]);
   doors.push(new Door(scene, new THREE.Vector3(-4, 0, -48), 2.5, 2.8, 'z', { w: walls, g: grounds, rebuild: () => {} }));
@@ -221,8 +267,8 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
   spireLight.position.set(0, 8, 0);
   scene.add(spireLight);
 
-  // Linear fog (replacing v6 exponential)
-  scene.fog = new THREE.Fog(0x07070d, 80, 200);
+  // Exponential fog for atmospheric depth
+  scene.fog = new THREE.FogExp2(0x07070d, 0.008);
 
   // ── Register with collision system ──
   col.walls = walls;
