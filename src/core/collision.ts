@@ -2,9 +2,21 @@
  * Collision System — extracted from v6 `Col` object (line 477).
  * Provides AABB-based wall collision, ground raycasting, and spatial hashing
  * for efficient broadphase lookups.
+ *
+ * Raycasting uses a merged static mesh with BVH acceleration via
+ * Three.js computeBoundsTree for O(log N) intersection.
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import {
+  computeBoundsTree, disposeBoundsTree, acceleratedRaycast,
+} from 'three-mesh-bvh';
+
+// Patch Three.js prototypes for BVH acceleration
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 /** Axis-aligned bounding box stored as min/max vectors */
 interface AABB {
@@ -20,12 +32,20 @@ export class CollisionSystem {
   /** Target meshes (entity body + head) for hit detection */
   targets: THREE.Mesh[] = [];
 
+  /** Merged static geometry mesh with BVH for fast raycasting */
+  private staticBVH: THREE.Mesh | null = null;
+
   /** Cached AABBs computed from wall meshes */
   private aabbs: AABB[] = [];
   /** Spatial hash grid: cell key -> list of AABBs */
   private gridCells: Map<number, AABB[]> = new Map();
   /** Size of each spatial hash cell (~MAP_R*2/8) */
   private cellSize = 24;
+
+  /** Ground height cache: cell key -> cached height (or undefined) */
+  private groundCache: Map<number, { height: number; normal: THREE.Vector3 }> = new Map();
+  /** Smaller cell size for ground cache (more granular) */
+  private groundCellSize = 3;
 
   // Pre-allocated raycasters for reuse
   private rcDown = new THREE.Raycaster();
@@ -38,7 +58,7 @@ export class CollisionSystem {
     return Math.floor(x / this.cellSize) + Math.floor(z / this.cellSize) * 1000;
   }
 
-  /** Rebuild AABB cache and spatial hash grid from current wall meshes */
+  /** Rebuild AABB cache, spatial hash grid, and BVH from current wall meshes */
   rebuild(): void {
     this.aabbs = this.walls.map(m => {
       const b = new THREE.Box3().setFromObject(m);
@@ -65,6 +85,49 @@ export class CollisionSystem {
         }
       }
     }
+
+    // Clear ground height cache
+    this.groundCache.clear();
+
+    // Build merged BVH mesh from all static geometry (walls + ground)
+    this.buildBVH();
+  }
+
+  /** Merge all walls + ground into a single geometry with BVH */
+  private buildBVH(): void {
+    if (this.staticBVH) {
+      this.staticBVH.geometry.disposeBoundsTree();
+      this.staticBVH.geometry.dispose();
+      this.staticBVH = null;
+    }
+
+    const allStatic = [...this.walls, ...this.ground];
+    if (allStatic.length === 0) return;
+
+    // Collect world-space geometries
+    const geometries: THREE.BufferGeometry[] = [];
+    for (const mesh of allStatic) {
+      const clone = mesh.geometry.clone();
+      clone.applyMatrix4(mesh.matrixWorld);
+      // Ensure all geometries are non-indexed or indexed consistently
+      if (!clone.index) {
+        geometries.push(clone);
+      } else {
+        geometries.push(clone.toNonIndexed());
+      }
+    }
+
+    const merged = mergeGeometries(geometries, false);
+    if (!merged) return;
+
+    merged.computeBoundsTree();
+
+    const mat = new THREE.MeshBasicMaterial({ visible: false });
+    this.staticBVH = new THREE.Mesh(merged, mat);
+    this.staticBVH.visible = false;
+
+    // Clean up temp clones
+    for (const g of geometries) g.dispose();
   }
 
   /** Get AABBs from the entity's cell and its 8 neighbors */
@@ -127,8 +190,15 @@ export class CollisionSystem {
     }
   }
 
+  /** Ground cell key for caching */
+  private groundCellKey(x: number, z: number): number {
+    return Math.floor(x / this.groundCellSize) + Math.floor(z / this.groundCellSize) * 10000;
+  }
+
   /**
    * Ground raycast — cast a ray downward to find the ground height.
+   * Uses per-cell caching to avoid redundant raycasts. Entities in the same
+   * cell reuse the cached result. Cache is cleared on rebuild().
    * @param pos - Position to check from
    * @param up - How far above pos to start the ray (default 2)
    * @param down - Maximum downward distance to check (default 4)
@@ -139,6 +209,13 @@ export class CollisionSystem {
     up: number = 2,
     down: number = 4
   ): { hit: boolean; height: number; normal: THREE.Vector3 } {
+    // Check ground cache (only for entities near ground level, i.e. not airborne)
+    const cacheKey = this.groundCellKey(pos.x, pos.z);
+    const cached = this.groundCache.get(cacheKey);
+    if (cached && Math.abs(pos.y - cached.height) < 2) {
+      return { hit: true, height: cached.height, normal: cached.normal };
+    }
+
     this.rcDown.set(
       new THREE.Vector3(pos.x, pos.y + up, pos.z),
       new THREE.Vector3(0, -1, 0)
@@ -146,13 +223,17 @@ export class CollisionSystem {
     this.rcDown.near = 0;
     this.rcDown.far = down;
 
-    const hits = this.rcDown.intersectObjects(this.ground, false);
+    const targets = this.staticBVH ? [this.staticBVH] : this.ground;
+    const hits = this.rcDown.intersectObjects(targets, false);
     if (hits.length > 0) {
-      return {
+      const result = {
         hit: true,
         height: hits[0].point.y,
-        normal: hits[0].face!.normal.clone()
+        normal: hits[0].face?.normal.clone() ?? new THREE.Vector3(0, 1, 0)
       };
+      // Cache the result for this cell
+      this.groundCache.set(cacheKey, { height: result.height, normal: result.normal });
+      return result;
     }
     return {
       hit: false,
@@ -162,7 +243,7 @@ export class CollisionSystem {
   }
 
   /**
-   * Forward raycast against walls only.
+   * Forward raycast against walls only. Uses BVH when available.
    * @param origin - Ray origin
    * @param dir - Ray direction (should be normalized)
    * @param maxDist - Maximum ray distance
@@ -177,7 +258,8 @@ export class CollisionSystem {
     this.rcFwd.near = 0;
     this.rcFwd.far = maxDist;
 
-    const hits = this.rcFwd.intersectObjects(this.walls, false);
+    const targets = this.staticBVH ? [this.staticBVH] : this.walls;
+    const hits = this.rcFwd.intersectObjects(targets, false);
     if (hits.length > 0) {
       return { hit: true, point: hits[0].point };
     }
@@ -186,6 +268,7 @@ export class CollisionSystem {
 
   /**
    * Raycast against walls and hittable targets.
+   * Uses BVH for static geometry, targets checked separately (only ~30 meshes).
    * @param origin - Ray origin
    * @param dir - Ray direction (should be normalized)
    * @param maxDist - Maximum ray distance (default 200)
@@ -200,15 +283,16 @@ export class CollisionSystem {
     this.rcRay.near = 0;
     this.rcRay.far = maxDist;
 
-    const results = this.rcRay.intersectObjects(
-      [...this.walls, ...this.targets],
-      false
-    );
+    // Check BVH static geometry + dynamic entity targets
+    const objects = this.staticBVH
+      ? [this.staticBVH, ...this.targets]
+      : [...this.walls, ...this.targets];
+    const results = this.rcRay.intersectObjects(objects, false);
     return results[0] || null;
   }
 
   /**
-   * Line of sight check between two points.
+   * Line of sight check between two points. Uses BVH when available.
    * @returns true if there are no wall obstructions between a and b
    */
   lineOfSight(a: THREE.Vector3, b: THREE.Vector3): boolean {
@@ -217,7 +301,8 @@ export class CollisionSystem {
     this.rcLos.near = 0;
     this.rcLos.far = a.distanceTo(b);
 
-    return this.rcLos.intersectObjects(this.walls, false).length === 0;
+    const targets = this.staticBVH ? [this.staticBVH] : this.walls;
+    return this.rcLos.intersectObjects(targets, false).length === 0;
   }
 }
 

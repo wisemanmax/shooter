@@ -274,6 +274,8 @@ export interface AbilEntity {
   _slowMult: number;
   /** Portal teleport cooldown */
   _portalCd: number;
+  /** 3D model group (for VFX that need scene reference) */
+  mdl?: THREE.Object3D;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -509,7 +511,7 @@ export const AbilSys = {
         st.data.center = pos;
 
         const geo  = new THREE.BoxGeometry(wallDef.width, wallDef.height, .4);
-        const mat  = new THREE.MeshStandardMaterial({ color: 0xf5c842, transparent: true, opacity: .7, roughness: .4, metalness: .3 });
+        const mat  = new THREE.MeshStandardMaterial({ color: 0xf5c842, transparent: true, opacity: .7, roughness: .4, metalness: .3, emissive: 0xf55a5a, emissiveIntensity: 0.2 });
         const wall = new THREE.Mesh(geo, mat);
         wall.position.copy(pos);
         wall.position.y = wallDef.height / 2;
@@ -565,6 +567,24 @@ export const AbilSys = {
               (as.tac.data.light as THREE.Object3D).position.copy(as.tac.data.mesh.position);
             }
           }
+          // Healing radius ring on ground
+          if (!as.tac.data.healRing && as.tac.data.pos) {
+            const healRing = new THREE.Mesh(
+              new THREE.RingGeometry(as.tac.data.radius - 0.1, as.tac.data.radius, 24),
+              new THREE.MeshBasicMaterial({ color: 0x5af5a6, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }),
+            );
+            healRing.rotation.x = -Math.PI / 2;
+            healRing.position.copy(as.tac.data.pos);
+            healRing.position.y = 0.05;
+            const scene = as.tac.data.mesh?.parent;
+            if (scene) scene.add(healRing);
+            AbilFX.objects.push({ mesh: healRing, timer: as.tac.timer + 1 });
+            as.tac.data.healRing = healRing;
+          }
+          // Pulse the heal ring
+          if (as.tac.data.healRing) {
+            (as.tac.data.healRing as THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>).material.opacity = 0.08 + Math.sin(time * 4) * 0.04;
+          }
           for (const e of allEnts) {
             if (e.squadId === ent.squadId && e.life === LifeState.ALIVE && e.pos.distanceTo(as.tac.data.pos) < as.tac.data.radius) {
               e.hp = Math.min(e.hp + as.tac.data.hps * dt, MAX_HP);
@@ -577,6 +597,25 @@ export const AbilSys = {
             if (e.squadId !== ent.squadId && e.life === LifeState.ALIVE && e.pos.distanceTo(as.tac.data.center) < as.tac.data.radius) {
               e._slowMult = as.tac.data.slowMult;
             }
+          }
+          break;
+
+        case 'phase':
+          // Ghost trail: spawn fading copies behind Wraith during phase walk
+          if (!as.tac.data.ghostTimer) as.tac.data.ghostTimer = 0;
+          as.tac.data.ghostTimer -= dt;
+          if (as.tac.data.ghostTimer <= 0) {
+            as.tac.data.ghostTimer = 0.04; // Spawn every 40ms
+            const ghost = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.2, 0.25, 1.0, 6),
+              new THREE.MeshBasicMaterial({ color: 0x9b59b6, transparent: true, opacity: 0.35, depthWrite: false }),
+            );
+            ghost.position.copy(ent.pos);
+            ghost.position.y += 0.5;
+            ghost.rotation.y = ent.yaw;
+            const scene = ent.mdl?.parent;
+            if (scene) scene.add(ghost);
+            AbilFX.objects.push({ mesh: ghost, timer: 0.2 });
           }
           break;
       }
@@ -597,6 +636,7 @@ export const AbilSys = {
                   e.takeDmg(as.ult.data.damage, ent, false);
                 }
               }
+              Ev.emit('ability:explosion', { pos: as.ult.data.target.clone() });
             }
           }
           break;
@@ -610,6 +650,35 @@ export const AbilSys = {
           }
           if (as.ult.data.dome) {
             (as.ult.data.dome as THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>).material.opacity = .04 + Math.sin(time * 3) * .02;
+          }
+          // Scanning rings inside dome
+          if (!as.ult.data.scanRings && as.ult.data.center) {
+            as.ult.data.scanRings = [];
+            for (let i = 0; i < 3; i++) {
+              const ring = new THREE.Mesh(
+                new THREE.RingGeometry(as.ult.data.radius * 0.3 * (i + 1), as.ult.data.radius * 0.3 * (i + 1) + 0.15, 24),
+                new THREE.MeshBasicMaterial({ color: 0x5ab8f5, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }),
+              );
+              ring.rotation.x = -Math.PI / 2;
+              ring.position.copy(as.ult.data.center);
+              ring.position.y = 0.1;
+              (ring.userData as any).baseY = 0.1;
+              (ring.userData as any).idx = i;
+              // Add to scene via AbilFX
+              const scene = as.ult.data.dome?.parent;
+              if (scene) scene.add(ring);
+              AbilFX.objects.push({ mesh: ring, timer: as.ult.timer + 1 });
+              as.ult.data.scanRings.push(ring);
+            }
+          }
+          // Animate scan rings moving upward
+          if (as.ult.data.scanRings) {
+            for (const ring of as.ult.data.scanRings) {
+              const idx = (ring.userData as any).idx;
+              const yOff = ((time * 0.8 + idx * 1.5) % 3) * 3;
+              ring.position.y = 0.1 + yOff;
+              (ring.material as THREE.MeshBasicMaterial).opacity = 0.08 * (1 - yOff / 9);
+            }
           }
           break;
 
@@ -666,7 +735,37 @@ export const AbilSys = {
 
         case 'wall':
           if (as.ult.data.mesh) {
-            (as.ult.data.mesh as THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>).material.opacity = .5 + Math.sin(time * 2) * .15;
+            const wallMat = (as.ult.data.mesh as THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>).material;
+            wallMat.opacity = .5 + Math.sin(time * 2) * .15;
+            wallMat.emissiveIntensity = 0.2 + Math.sin(time * 3) * 0.1;
+          }
+          // Energy ripple strips on wall surface
+          if (!as.ult.data.ripples && as.ult.data.mesh) {
+            as.ult.data.ripples = [];
+            const wallMesh = as.ult.data.mesh as THREE.Mesh;
+            for (let i = 0; i < 3; i++) {
+              const strip = new THREE.Mesh(
+                new THREE.PlaneGeometry(12, 0.15),
+                new THREE.MeshBasicMaterial({ color: 0xf55a5a, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false }),
+              );
+              strip.position.copy(wallMesh.position);
+              strip.rotation.copy(wallMesh.rotation);
+              strip.position.y = wallMesh.position.y - 1 + i * 1.2;
+              (strip.userData as any).baseY = strip.position.y;
+              (strip.userData as any).idx = i;
+              const scene = wallMesh.parent;
+              if (scene) scene.add(strip);
+              AbilFX.objects.push({ mesh: strip, timer: as.ult.timer + 1 });
+              as.ult.data.ripples.push(strip);
+            }
+          }
+          if (as.ult.data.ripples) {
+            for (const strip of as.ult.data.ripples) {
+              const idx = (strip.userData as any).idx;
+              const wave = Math.sin(time * 2 + idx * 2) * 0.3;
+              strip.position.y = (strip.userData as any).baseY + wave;
+              (strip.material as THREE.MeshBasicMaterial).opacity = 0.12 + Math.sin(time * 3 + idx) * 0.08;
+            }
           }
           break;
       }

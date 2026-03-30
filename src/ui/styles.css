@@ -154,13 +154,13 @@
 .rbf{height:100%;background:#5af5a6}
 
 /* ── Crosshair ── */
-#xh{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:50;pointer-events:none}
+#xh{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:50;pointer-events:none;width:40px;height:40px}
 .xd{position:absolute;width:2px;height:2px;background:#fff;border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%)}
-.xa{position:absolute;background:rgba(255,255,255,.4)}
-.xa.t{width:1px;height:6px;left:50%;transform:translateX(-50%)}
-.xa.b{width:1px;height:6px;left:50%;transform:translateX(-50%)}
-.xa.l{height:1px;width:6px;top:50%;transform:translateY(-50%)}
-.xa.r{height:1px;width:6px;top:50%;transform:translateY(-50%)}
+.xa{position:absolute;background:rgba(255,255,255,.4);transition:top .06s,left .06s}
+.xa.t{width:1px;height:6px;left:50%;transform:translateX(-50%);top:calc(50% - 10px)}
+.xa.b{width:1px;height:6px;left:50%;transform:translateX(-50%);top:calc(50% + 4px)}
+.xa.l{height:1px;width:6px;top:50%;transform:translateY(-50%);left:calc(50% - 10px)}
+.xa.r{height:1px;width:6px;top:50%;transform:translateY(-50%);left:calc(50% + 4px)}
 #xh.hit .xd{background:#e8c547;box-shadow:0 0 4px #e8c547}
 #xh.kill .xd{background:#f44;box-shadow:0 0 5px #f44}
 
@@ -196,3 +196,21 @@
 #dbg{position:fixed;bottom:4px;left:4px;z-index:57;background:rgba(6,6,12,.6);border:1px solid rgba(232,197,71,.05);padding:3px 6px;border-radius:2px;font-size:.38rem;color:#555;line-height:1.3;pointer-events:none;min-width:100px}
 #dbg .dl{color:#333}
 #dbg .dv{color:#e8c547}
+
+/* ── Scoreboard (TAB overlay) ── */
+#scoreboard{position:fixed;inset:0;z-index:180;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(3,3,6,.92);user-select:none;pointer-events:none}
+#scoreboard.hidden{display:none}
+#scoreboard h2{font-family:'Rajdhani',sans-serif;font-size:1.2rem;font-weight:700;color:#e8c547;letter-spacing:.15em;text-transform:uppercase;margin-bottom:12px}
+#sb-body{width:420px;max-width:90vw}
+.sb-squad{margin-bottom:8px;border:1px solid rgba(255,255,255,.04);border-radius:4px;overflow:hidden}
+.sb-squad.player-squad{border-color:rgba(232,197,71,.15)}
+.sb-sh{display:flex;justify-content:space-between;align-items:center;padding:4px 8px;background:rgba(255,255,255,.02);font-family:'Rajdhani',sans-serif;font-size:.55rem;font-weight:600;color:#888;letter-spacing:.06em;text-transform:uppercase}
+.sb-sh.eliminated{color:#444;text-decoration:line-through}
+.sb-row{display:flex;align-items:center;padding:3px 8px;gap:8px;font-size:.42rem;color:#777;border-top:1px solid rgba(255,255,255,.02)}
+.sb-row.self{color:#e8c547}
+.sb-row.dead{color:#444;text-decoration:line-through}
+.sb-name{flex:1;min-width:60px}
+.sb-hero{color:#555;width:50px;text-align:center}
+.sb-val{width:40px;text-align:right;font-family:'Rajdhani',sans-serif;font-size:.5rem;font-weight:700}
+.sb-hdr{display:flex;gap:8px;justify-content:flex-end;padding:0 8px 4px;font-size:.35rem;color:#444;letter-spacing:.04em;text-transform:uppercase}
+.sb-hdr span{width:40px;text-align:right}

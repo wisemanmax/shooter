@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "three": "^0.183.2",
+    "three-mesh-bvh": "^0.9.9",
     "ws": "^8.16.0"
   },
   "devDependencies": {

@@ -147,6 +147,7 @@ export function initHUD(): void {
     weaponHud: document.getElementById('wep-hud')!,
     abilHud: document.getElementById('abil-hud')!,
   };
+  initDomPools();
 }
 
 /** Hit effect timers — set externally, decayed by updateHUD */
@@ -164,27 +165,132 @@ export function showBanner(title: string, subtitle: string, duration = 3): void 
   bannerTimer = duration;
 }
 
-/** Spawn a floating damage number at world position */
+/* ── DOM Element Pools ── */
+
+const DMG_POOL_SIZE = 20;
+const KF_POOL_SIZE = 8;
+
+const dmgPool: HTMLElement[] = [];
+const kfPool: HTMLElement[] = [];
+
+/** Initialize DOM element pools (call after initHUD) */
+function initDomPools(): void {
+  if (!refs) return;
+  // Pre-create damage number elements
+  for (let i = 0; i < DMG_POOL_SIZE; i++) {
+    const el = document.createElement('div');
+    el.className = 'dn';
+    el.style.display = 'none';
+    refs.dmgContainer.appendChild(el);
+    dmgPool.push(el);
+  }
+  // Pre-create kill feed elements
+  for (let i = 0; i < KF_POOL_SIZE; i++) {
+    const el = document.createElement('div');
+    el.className = 'kfe';
+    el.style.display = 'none';
+    refs.killFeed.appendChild(el);
+    kfPool.push(el);
+  }
+}
+
+/** Acquire a damage number element from the pool */
+function acquireDmgEl(): HTMLElement | null {
+  for (const el of dmgPool) {
+    if (el.style.display === 'none') return el;
+  }
+  // All in use — recycle the oldest (first in pool)
+  return dmgPool[0] || null;
+}
+
+/** Acquire a kill feed element from the pool */
+function acquireKfEl(): HTMLElement | null {
+  for (const el of kfPool) {
+    if (el.style.display === 'none') return el;
+  }
+  return kfPool[0] || null;
+}
+
+/** Spawn a floating damage number at world position (pooled) */
 export function spawnDamageNumber(worldPos: THREE.Vector3, amount: number, type: 'hp' | 'sh' | 'hd'): void {
   if (!refs) return;
-  const el = document.createElement('div');
+  const el = acquireDmgEl();
+  if (!el) return;
   el.className = 'dn ' + type;
   el.textContent = String(Math.round(amount));
   el.dataset.wx = String(worldPos.x + (Math.random() - 0.5) * 0.3);
   el.dataset.wy = String(worldPos.y + 1.5 + Math.random() * 0.3);
   el.dataset.wz = String(worldPos.z + (Math.random() - 0.5) * 0.3);
-  refs.dmgContainer.appendChild(el);
-  setTimeout(() => el.remove(), 650);
+  el.style.display = '';
+  el.style.animation = 'none';
+  // Force reflow to restart animation
+  el.offsetHeight;
+  el.style.animation = '';
+  setTimeout(() => { el.style.display = 'none'; }, 650);
 }
 
-/** Add a kill feed entry */
+/** Add a kill feed entry (pooled) */
 export function addKillFeed(victimName: string, killerName: string | null): void {
   if (!refs) return;
-  const el = document.createElement('div');
-  el.className = 'kfe';
+  const el = acquireKfEl();
+  if (!el) return;
   el.innerHTML = `<span class="kn">${killerName || 'Ring'}</span> → ${victimName}`;
-  refs.killFeed.appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+  el.style.display = '';
+  el.style.animation = 'none';
+  el.offsetHeight;
+  el.style.animation = '';
+  setTimeout(() => { el.style.display = 'none'; }, 3200);
+}
+
+/* ── Scoreboard ── */
+
+let scoreboardEl: HTMLElement | null = null;
+let scoreboardBody: HTMLElement | null = null;
+let scoreboardVisible = false;
+
+/** Initialize scoreboard refs (call after initHUD) */
+export function initScoreboard(): void {
+  scoreboardEl = document.getElementById('scoreboard');
+  scoreboardBody = document.getElementById('sb-body');
+}
+
+/** Show/hide scoreboard */
+export function setScoreboardVisible(visible: boolean): void {
+  if (!scoreboardEl) return;
+  if (visible !== scoreboardVisible) {
+    scoreboardEl.classList.toggle('hidden', !visible);
+    scoreboardVisible = visible;
+  }
+}
+
+/** Render scoreboard content */
+export function renderScoreboard(
+  squads: {
+    squadId: number;
+    isPlayerSquad: boolean;
+    members: {
+      name: string;
+      heroName: string;
+      kills: number;
+      damage: number;
+      life: number;
+      isPlayer: boolean;
+    }[];
+  }[],
+): void {
+  if (!scoreboardBody) return;
+  let html = '<div class="sb-hdr"><span>Kills</span><span>Dmg</span></div>';
+  for (const squad of squads) {
+    const allElim = squad.members.every(m => m.life === 2);
+    html += `<div class="sb-squad${squad.isPlayerSquad ? ' player-squad' : ''}">`;
+    html += `<div class="sb-sh${allElim ? ' eliminated' : ''}">Squad ${squad.squadId + 1}</div>`;
+    for (const m of squad.members) {
+      const cls = m.isPlayer ? 'sb-row self' : m.life === 2 ? 'sb-row dead' : 'sb-row';
+      html += `<div class="${cls}"><span class="sb-name">${m.name}</span><span class="sb-hero">${m.heroName}</span><span class="sb-val">${m.kills}</span><span class="sb-val">${m.damage}</span></div>`;
+    }
+    html += '</div>';
+  }
+  scoreboardBody.innerHTML = html;
 }
 
 /** State passed to updateHUD each frame */
@@ -238,6 +344,9 @@ export interface HUDState {
   fps: number;
   ringStage: number;
   ringRadius: number;
+  // Crosshair bloom
+  weaponBloom: number;
+  weaponMaxBloom: number;
 }
 
 /**
@@ -347,6 +456,23 @@ export function updateHUD(state: HUDState, dt: number): void {
   toggleClass(refs.specBar, 'sp-show', 'show', state.isSpectating);
   if (state.isSpectating) setText(refs.specName, 'sp-n', state.spectatingName);
 
+  // Crosshair bloom — spread the arms proportionally to weapon bloom
+  {
+    const bloomFrac = state.weaponMaxBloom > 0 ? state.weaponBloom / state.weaponMaxBloom : 0;
+    const spreadPx = Math.round(4 + bloomFrac * 14); // 4px at rest, 18px at max bloom
+    const key = 'xh-bloom-' + spreadPx;
+    if (prev['xh-bloom'] !== key) {
+      prev['xh-bloom'] = key;
+      const arms = refs.crosshair.querySelectorAll('.xa');
+      if (arms.length >= 4) {
+        (arms[0] as HTMLElement).style.top = `calc(50% - ${spreadPx + 6}px)`;   // top arm
+        (arms[1] as HTMLElement).style.top = `calc(50% + ${spreadPx}px)`;        // bottom arm
+        (arms[2] as HTMLElement).style.left = `calc(50% - ${spreadPx + 6}px)`;   // left arm
+        (arms[3] as HTMLElement).style.left = `calc(50% + ${spreadPx}px)`;       // right arm
+      }
+    }
+  }
+
   // Visibility toggles
   const alive = state.playerLife === 0;
   const inGame = alive && !state.playerDropping && !state.playerOnZip;
@@ -396,6 +522,8 @@ export function drawMinimap(
   entities: { pos: THREE.Vector3; squadId: number; life: number; isPlayer: boolean; dropping: boolean; _revealed?: boolean }[],
   ring: { cx: number; cz: number; currentR: number },
   mapRadius: number,
+  pings?: { pos: THREE.Vector3; type: number }[],
+  supplyDrops?: THREE.Vector3[],
 ): void {
   if (!refs) return;
   const cv = refs.minimap;
@@ -413,6 +541,39 @@ export function drawMinimap(
   ctx.beginPath();
   ctx.arc(W / 2 + ring.cx * S, W / 2 + ring.cz * S, ring.currentR * S, 0, Math.PI * 2);
   ctx.stroke();
+
+  // Supply drops (golden diamond)
+  if (supplyDrops) {
+    for (const d of supplyDrops) {
+      const x = W / 2 + d.x * S;
+      const y = W / 2 + d.z * S;
+      ctx.fillStyle = '#e8c547';
+      ctx.beginPath();
+      ctx.moveTo(x, y - 3);
+      ctx.lineTo(x + 2, y);
+      ctx.lineTo(x, y + 3);
+      ctx.lineTo(x - 2, y);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Pings
+  if (pings) {
+    const pingColors = ['#5ab8f5', '#ff4444', '#e8c547'];
+    for (const p of pings) {
+      const x = W / 2 + p.pos.x * S;
+      const y = W / 2 + p.pos.z * S;
+      ctx.strokeStyle = pingColors[p.type] || '#5ab8f5';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.stroke();
+      // Center dot
+      ctx.fillStyle = pingColors[p.type] || '#5ab8f5';
+      ctx.fillRect(x - 1, y - 1, 2, 2);
+    }
+  }
 
   // Entities
   for (const e of entities) {
