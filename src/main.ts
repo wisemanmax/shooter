@@ -4,6 +4,7 @@
  * Supports two modes: MATCH (with bots, offline) and FIRING_RANGE.
  */
 
+import './ui/styles.css';
 import * as THREE from 'three';
 import { SIM, COMBAT } from '@shared/protocol';
 import { Input } from './core/input';
