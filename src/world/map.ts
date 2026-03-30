@@ -82,6 +82,9 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
     emissive: 0x5ab8f5, emissiveIntensity: 0.3,
   });
 
+  // Shared dummy object for instanced mesh transforms
+  const _dummy = new THREE.Object3D();
+
   /** Helper: place a box and register with collision */
   const box = (
     w: number, h: number, d: number,
@@ -209,11 +212,28 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
   lootBins.push(new LootBin(scene, new THREE.Vector3(-6, 0, -53)));
   lootBins.push(new LootBin(scene, new THREE.Vector3(6, 0, -57)));
 
-  // ── Cargo Yard ──
-  for (const [x, z] of [[50, -8], [53, -4], [50, 2], [55, 6], [52, 10]] as [number, number][]) {
-    box(2, 2, 2, mCrate, [x, 1, z]);
+  // ── Cargo Yard (instanced crates) ──
+  const cratePositions: [number, number, number][] = [
+    [50, 1, -8], [53, 1, -4], [50, 1, 2], [55, 1, 6], [52, 1, 10], [50, 3, -8],
+  ];
+  const crateGeo = new THREE.BoxGeometry(2, 2, 2);
+  const crateMesh = new THREE.InstancedMesh(crateGeo, mCrate, cratePositions.length);
+  crateMesh.receiveShadow = true;
+  crateMesh.castShadow = true;
+  for (let i = 0; i < cratePositions.length; i++) {
+    _dummy.position.set(cratePositions[i][0], cratePositions[i][1], cratePositions[i][2]);
+    _dummy.scale.set(1, 1, 1);
+    _dummy.updateMatrix();
+    crateMesh.setMatrixAt(i, _dummy.matrix);
+    // Collision AABB
+    const m = new THREE.Mesh(crateGeo, mCrate);
+    m.position.set(cratePositions[i][0], cratePositions[i][1], cratePositions[i][2]);
+    m.updateMatrixWorld(true);
+    walls.push(m);
+    grounds.push(m);
   }
-  box(2, 2, 2, mCrate, [50, 3, -8]);
+  crateMesh.instanceMatrix.needsUpdate = true;
+  scene.add(crateMesh);
   box(8, 0.3, 6, mPlat, [52, 4, 8]);
   ramp(5, 4, 3, mRamp, [47, 0, 8], 0);
   ziplines.push(new Zipline(scene, new THREE.Vector3(50, 5.5, -8), new THREE.Vector3(52, 4.5, 14)));
@@ -239,15 +259,31 @@ export function buildWorld(scene: THREE.Scene, col: CollisionSystem): WorldObjec
   box(12, 1.2, 0.25, mWall, [0, 6.8, 58]);
   jumpPads.push(new JumpPad(scene, new THREE.Vector3(0, 6.1, 64), new THREE.Vector3(0, 1, -1)));
 
-  // ── Scattered cover ──
-  for (const [x, z] of [
-    [-30, -30], [30, -30], [-30, 30], [30, 30],
-    [-18, 0], [18, 0], [0, -22], [0, 22],
-    [-42, -38], [42, -38],
-  ] as [number, number][]) {
-    const w = 1.2 + Math.random() * 1.5;
-    box(w, 1.2, 0.3, mMetal, [x, 0.6, z]);
+  // ── Scattered cover (instanced for performance) ──
+  const coverPositions: [number, number, number][] = [
+    [-30, -30, 1.5], [30, -30, 1.8], [-30, 30, 1.3], [30, 30, 2.0],
+    [-18, 0, 1.6], [18, 0, 1.4], [0, -22, 1.7], [0, 22, 1.9],
+    [-42, -38, 2.1], [42, -38, 1.5],
+  ];
+  const coverGeo = new THREE.BoxGeometry(1, 1.2, 0.3);
+  const coverMesh = new THREE.InstancedMesh(coverGeo, mMetal, coverPositions.length);
+  coverMesh.receiveShadow = true;
+  coverMesh.castShadow = true;
+  for (let i = 0; i < coverPositions.length; i++) {
+    const [cx, cz, cw] = coverPositions[i];
+    _dummy.position.set(cx, 0.6, cz);
+    _dummy.scale.set(cw, 1, 1);
+    _dummy.updateMatrix();
+    coverMesh.setMatrixAt(i, _dummy.matrix);
+    // Also register individual AABB for collision
+    const m = new THREE.Mesh(new THREE.BoxGeometry(cw, 1.2, 0.3), mMetal);
+    m.position.set(cx, 0.6, cz);
+    m.updateMatrixWorld(true);
+    walls.push(m);
+    grounds.push(m);
   }
+  coverMesh.instanceMatrix.needsUpdate = true;
+  scene.add(coverMesh);
 
   // ── Lighting ──
   scene.add(new THREE.AmbientLight(0x3a3a55, 0.45));

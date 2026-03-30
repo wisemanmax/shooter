@@ -42,6 +42,11 @@ export class CollisionSystem {
   /** Size of each spatial hash cell (~MAP_R*2/8) */
   private cellSize = 24;
 
+  /** Ground height cache: cell key -> cached height (or undefined) */
+  private groundCache: Map<number, { height: number; normal: THREE.Vector3 }> = new Map();
+  /** Smaller cell size for ground cache (more granular) */
+  private groundCellSize = 3;
+
   // Pre-allocated raycasters for reuse
   private rcDown = new THREE.Raycaster();
   private rcFwd = new THREE.Raycaster();
@@ -80,6 +85,9 @@ export class CollisionSystem {
         }
       }
     }
+
+    // Clear ground height cache
+    this.groundCache.clear();
 
     // Build merged BVH mesh from all static geometry (walls + ground)
     this.buildBVH();
@@ -182,9 +190,15 @@ export class CollisionSystem {
     }
   }
 
+  /** Ground cell key for caching */
+  private groundCellKey(x: number, z: number): number {
+    return Math.floor(x / this.groundCellSize) + Math.floor(z / this.groundCellSize) * 10000;
+  }
+
   /**
    * Ground raycast — cast a ray downward to find the ground height.
-   * Uses BVH-accelerated mesh when available.
+   * Uses per-cell caching to avoid redundant raycasts. Entities in the same
+   * cell reuse the cached result. Cache is cleared on rebuild().
    * @param pos - Position to check from
    * @param up - How far above pos to start the ray (default 2)
    * @param down - Maximum downward distance to check (default 4)
@@ -195,6 +209,13 @@ export class CollisionSystem {
     up: number = 2,
     down: number = 4
   ): { hit: boolean; height: number; normal: THREE.Vector3 } {
+    // Check ground cache (only for entities near ground level, i.e. not airborne)
+    const cacheKey = this.groundCellKey(pos.x, pos.z);
+    const cached = this.groundCache.get(cacheKey);
+    if (cached && Math.abs(pos.y - cached.height) < 2) {
+      return { hit: true, height: cached.height, normal: cached.normal };
+    }
+
     this.rcDown.set(
       new THREE.Vector3(pos.x, pos.y + up, pos.z),
       new THREE.Vector3(0, -1, 0)
@@ -202,15 +223,17 @@ export class CollisionSystem {
     this.rcDown.near = 0;
     this.rcDown.far = down;
 
-    // Use BVH mesh for ground check (includes both walls and ground geometry)
     const targets = this.staticBVH ? [this.staticBVH] : this.ground;
     const hits = this.rcDown.intersectObjects(targets, false);
     if (hits.length > 0) {
-      return {
+      const result = {
         hit: true,
         height: hits[0].point.y,
         normal: hits[0].face?.normal.clone() ?? new THREE.Vector3(0, 1, 0)
       };
+      // Cache the result for this cell
+      this.groundCache.set(cacheKey, { height: result.height, normal: result.normal });
+      return result;
     }
     return {
       hit: false,

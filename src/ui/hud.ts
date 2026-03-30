@@ -147,6 +147,7 @@ export function initHUD(): void {
     weaponHud: document.getElementById('wep-hud')!,
     abilHud: document.getElementById('abil-hud')!,
   };
+  initDomPools();
 }
 
 /** Hit effect timers — set externally, decayed by updateHUD */
@@ -164,27 +165,81 @@ export function showBanner(title: string, subtitle: string, duration = 3): void 
   bannerTimer = duration;
 }
 
-/** Spawn a floating damage number at world position */
+/* ── DOM Element Pools ── */
+
+const DMG_POOL_SIZE = 20;
+const KF_POOL_SIZE = 8;
+
+const dmgPool: HTMLElement[] = [];
+const kfPool: HTMLElement[] = [];
+
+/** Initialize DOM element pools (call after initHUD) */
+function initDomPools(): void {
+  if (!refs) return;
+  // Pre-create damage number elements
+  for (let i = 0; i < DMG_POOL_SIZE; i++) {
+    const el = document.createElement('div');
+    el.className = 'dn';
+    el.style.display = 'none';
+    refs.dmgContainer.appendChild(el);
+    dmgPool.push(el);
+  }
+  // Pre-create kill feed elements
+  for (let i = 0; i < KF_POOL_SIZE; i++) {
+    const el = document.createElement('div');
+    el.className = 'kfe';
+    el.style.display = 'none';
+    refs.killFeed.appendChild(el);
+    kfPool.push(el);
+  }
+}
+
+/** Acquire a damage number element from the pool */
+function acquireDmgEl(): HTMLElement | null {
+  for (const el of dmgPool) {
+    if (el.style.display === 'none') return el;
+  }
+  // All in use — recycle the oldest (first in pool)
+  return dmgPool[0] || null;
+}
+
+/** Acquire a kill feed element from the pool */
+function acquireKfEl(): HTMLElement | null {
+  for (const el of kfPool) {
+    if (el.style.display === 'none') return el;
+  }
+  return kfPool[0] || null;
+}
+
+/** Spawn a floating damage number at world position (pooled) */
 export function spawnDamageNumber(worldPos: THREE.Vector3, amount: number, type: 'hp' | 'sh' | 'hd'): void {
   if (!refs) return;
-  const el = document.createElement('div');
+  const el = acquireDmgEl();
+  if (!el) return;
   el.className = 'dn ' + type;
   el.textContent = String(Math.round(amount));
   el.dataset.wx = String(worldPos.x + (Math.random() - 0.5) * 0.3);
   el.dataset.wy = String(worldPos.y + 1.5 + Math.random() * 0.3);
   el.dataset.wz = String(worldPos.z + (Math.random() - 0.5) * 0.3);
-  refs.dmgContainer.appendChild(el);
-  setTimeout(() => el.remove(), 650);
+  el.style.display = '';
+  el.style.animation = 'none';
+  // Force reflow to restart animation
+  el.offsetHeight;
+  el.style.animation = '';
+  setTimeout(() => { el.style.display = 'none'; }, 650);
 }
 
-/** Add a kill feed entry */
+/** Add a kill feed entry (pooled) */
 export function addKillFeed(victimName: string, killerName: string | null): void {
   if (!refs) return;
-  const el = document.createElement('div');
-  el.className = 'kfe';
+  const el = acquireKfEl();
+  if (!el) return;
   el.innerHTML = `<span class="kn">${killerName || 'Ring'}</span> → ${victimName}`;
-  refs.killFeed.appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+  el.style.display = '';
+  el.style.animation = 'none';
+  el.offsetHeight;
+  el.style.animation = '';
+  setTimeout(() => { el.style.display = 'none'; }, 3200);
 }
 
 /* ── Scoreboard ── */
@@ -289,6 +344,9 @@ export interface HUDState {
   fps: number;
   ringStage: number;
   ringRadius: number;
+  // Crosshair bloom
+  weaponBloom: number;
+  weaponMaxBloom: number;
 }
 
 /**
@@ -397,6 +455,23 @@ export function updateHUD(state: HUDState, dt: number): void {
   // Spectator
   toggleClass(refs.specBar, 'sp-show', 'show', state.isSpectating);
   if (state.isSpectating) setText(refs.specName, 'sp-n', state.spectatingName);
+
+  // Crosshair bloom — spread the arms proportionally
+  if (state.weaponMaxBloom > 0) {
+    const spreadPx = Math.round(4 + (state.weaponBloom / state.weaponMaxBloom) * 14);
+    setStyle(refs.crosshair, 'xh-gap-t', '--gap-t', `-${spreadPx + 6}px`);
+    setStyle(refs.crosshair, 'xh-gap-b', '--gap-b', `${spreadPx}px`);
+    setStyle(refs.crosshair, 'xh-gap-l', '--gap-l', `-${spreadPx + 6}px`);
+    setStyle(refs.crosshair, 'xh-gap-r', '--gap-r', `${spreadPx}px`);
+    // Apply via direct style since CSS vars need the elements
+    const arms = refs.crosshair.querySelectorAll('.xa');
+    if (arms.length >= 4) {
+      (arms[0] as HTMLElement).style.top = `calc(50% - ${spreadPx + 6}px)`;
+      (arms[1] as HTMLElement).style.top = `calc(50% + ${spreadPx}px)`;
+      (arms[2] as HTMLElement).style.left = `calc(50% - ${spreadPx + 6}px)`;
+      (arms[3] as HTMLElement).style.left = `calc(50% + ${spreadPx}px)`;
+    }
+  }
 
   // Visibility toggles
   const alive = state.playerLife === 0;

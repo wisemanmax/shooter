@@ -747,6 +747,8 @@ function gameLoop(now: number): void {
     fps: avgFps,
     ringStage: ring?.stage ?? 0,
     ringRadius: ring?.currentR ?? SIM.MAP_RADIUS,
+    weaponBloom: aw?.bloom ?? 0,
+    weaponMaxBloom: aw?.def.spread.max ?? 1,
   };
 
   updateHUD(hudState, dt);
