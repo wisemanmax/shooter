@@ -1,6 +1,6 @@
 /**
- * Bot AI behavior — extracted from v6-heroes.html tickBot (line 520).
- * Handles patrol, combat, revive, ring awareness, and ability usage.
+ * Bot AI behavior — enhanced with cover seeking, looting, squad cohesion,
+ * and distance-based accuracy.
  */
 
 import * as THREE from 'three';
@@ -10,36 +10,111 @@ import { WEAPON_DEFS, applyRarity } from '../combat/weapons';
 import { AMMO_TYPES } from '../combat/weapons';
 import { AbilSys } from '../combat/abilities';
 import { LootTable } from '../world/loot';
+import { Ev } from '../utils/events';
 import type { Entity } from './entity';
 import type { Ring } from '../world/ring';
 import type { JumpPad } from '../world/traversal';
+import type { LootNode } from '../world/loot';
 
-/* ── Bot config constants matching v6 C.* ── */
+/* ── Bot config constants ── */
 
-/** Bot fire cooldown base (seconds) */
 const BOT_FIRE_CD = 0.35;
-/** Bot fire accuracy chance */
-const BOT_ACCURACY = 0.4;
-/** Bot engagement range */
 const BOT_ENGAGE_RANGE = 35;
-/** Bot revive priority range */
 const BOT_REVIVE_RANGE = 15;
-/** Drop speed */
 const DROP_SPEED = 18;
-/** Drop height */
-const DROP_HEIGHT = 60;
+const LOOT_RANGE = 12;
+const SQUAD_FOLLOW_DIST = 18;
+const COVER_SEARCH_DIST = 10;
+
+/** Accuracy falls off with distance: high at close range, low at far */
+function getAccuracy(dist: number): number {
+  if (dist < 5) return 0.6;
+  if (dist < 15) return 0.5;
+  if (dist < 25) return 0.35;
+  if (dist < 35) return 0.2;
+  return 0.12;
+}
+
+/* ── Bot AI state enum ── */
+const enum BotState {
+  PATROL,
+  ENGAGE,
+  SEEK_COVER,
+  LOOT,
+  REVIVE,
+  FLEE_RING,
+  FOLLOW_SQUAD,
+}
+
+/* ── Per-bot persistent state (stored on entity via expando) ── */
+interface BotAI {
+  state: BotState;
+  patrolTarget: THREE.Vector3 | null;
+  patrolTime: number;
+  fireCd: number;
+  coverPos: THREE.Vector3 | null;
+  coverTime: number;
+  lootTarget: LootNode | null;
+  stateTime: number;
+  kills: number;
+  damageDealt: number;
+}
+
+function getAI(e: Entity): BotAI {
+  if (!(e as any)._ai) {
+    (e as any)._ai = {
+      state: BotState.PATROL,
+      patrolTarget: null,
+      patrolTime: 0,
+      fireCd: 0,
+      coverPos: null,
+      coverTime: 0,
+      lootTarget: null,
+      stateTime: 0,
+      kills: 0,
+      damageDealt: 0,
+    };
+  }
+  return (e as any)._ai;
+}
+
+/** Find a cover position behind a wall relative to the threat */
+function findCover(
+  e: Entity,
+  threat: THREE.Vector3,
+  col: CollisionSystem,
+): THREE.Vector3 | null {
+  const toThreat = threat.clone().sub(e.pos).normalize();
+  // Try several directions away from threat
+  for (let angle = Math.PI; angle > Math.PI * 0.5; angle -= 0.4) {
+    for (const sign of [1, -1]) {
+      const dir = toThreat.clone()
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), angle * sign)
+        .multiplyScalar(COVER_SEARCH_DIST);
+      const candidate = e.pos.clone().add(dir);
+
+      // Check if this position has a wall between it and the threat
+      if (!col.lineOfSight(candidate, threat)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+/** Find nearest squad leader (first alive member) for squad cohesion */
+function findSquadLeader(e: Entity, allEnts: Entity[]): Entity | null {
+  for (const other of allEnts) {
+    if (other.squadId === e.squadId && other !== e && other.life === 0 && !other.dropping) {
+      return other;
+    }
+  }
+  return null;
+}
 
 /**
  * Tick a bot entity for one frame.
- * Handles: dropping, downed, patrol, combat, revive, ring, abilities, physics.
- * @param e - The bot entity
- * @param dt - Frame delta time
- * @param allEnts - All entities in the match
- * @param time - Current game time in seconds
- * @param ring - Ring system
- * @param pads - Jump pads
- * @param col - Collision system
- * @param scene - THREE scene (for ability visuals)
+ * Enhanced with: cover seeking, looting, squad cohesion, distance-based accuracy.
  */
 export function tickBot(
   e: Entity,
@@ -50,6 +125,7 @@ export function tickBot(
   pads: JumpPad[],
   col: CollisionSystem,
   scene: THREE.Scene,
+  lootNodes?: LootNode[],
 ): void {
   // ── Drop phase ──
   if (e.dropping) {
@@ -97,6 +173,10 @@ export function tickBot(
     }
   }
 
+  const ai = getAI(e);
+  ai.fireCd -= dt;
+  ai.stateTime += dt;
+
   // ── Find targets ──
   const enemies = allEnts.filter(x => x.squadId !== e.squadId && x.life === 0 && !x.dropping);
   const downedAllies = allEnts.filter(x => x.squadId === e.squadId && x.life === 1 && x !== e);
@@ -115,32 +195,135 @@ export function tickBot(
     if (d < nearestDownedDist) { nearestDownedDist = d; nearestDowned = x; }
   }
 
-  // ── Choose target position ──
   const outsideRing = ring.isOutside(e.pos);
-  let target: THREE.Vector3 | null = null;
+  const lowHealth = e.hp < 30;
 
+  // ── State transitions ──
   if (outsideRing) {
-    // Move toward ring center
-    target = new THREE.Vector3(ring.cx, 0, ring.cz);
+    ai.state = BotState.FLEE_RING;
   } else if (nearestDowned && nearestDownedDist < BOT_REVIVE_RANGE && (!nearestEnemy || nearestEnemyDist > 12)) {
-    // Revive downed ally
-    target = nearestDowned.pos;
-    if (nearestDownedDist < COMBAT.REVIVE_DIST && !nearestDowned.beingRevived) {
-      nearestDowned.beingRevived = true;
-      nearestDowned.reviver = e;
-    }
+    ai.state = BotState.REVIVE;
   } else if (nearestEnemy && nearestEnemyDist < BOT_ENGAGE_RANGE) {
-    // Engage enemy
-    target = nearestEnemy.pos;
-  } else {
-    // Patrol
-    if (!(e as any)._pt || time - ((e as any)._ptT || 0) > 5) {
-      const a = Math.random() * Math.PI * 2;
-      const d = Math.random() * ring.currentR * 0.5;
-      (e as any)._pt = new THREE.Vector3(ring.cx + Math.cos(a) * d, 0, ring.cz + Math.sin(a) * d);
-      (e as any)._ptT = time;
+    // Low health? Seek cover first
+    if (lowHealth && ai.state !== BotState.SEEK_COVER) {
+      const cover = findCover(e, nearestEnemy.pos, col);
+      if (cover) {
+        ai.coverPos = cover;
+        ai.coverTime = 0;
+        ai.state = BotState.SEEK_COVER;
+      } else {
+        ai.state = BotState.ENGAGE;
+      }
+    } else if (ai.state !== BotState.SEEK_COVER || ai.coverTime > 3) {
+      ai.state = BotState.ENGAGE;
     }
-    target = (e as any)._pt;
+  } else if (lootNodes && !w && ai.state !== BotState.LOOT) {
+    // No weapon — try to loot
+    const nearest = findNearestLoot(e, lootNodes);
+    if (nearest) {
+      ai.lootTarget = nearest;
+      ai.state = BotState.LOOT;
+    }
+  } else if (lootNodes && ai.stateTime > 4 && ai.state === BotState.PATROL) {
+    // Periodic loot check while patrolling
+    const nearest = findNearestLoot(e, lootNodes);
+    if (nearest && e.pos.distanceTo(nearest.pos) < LOOT_RANGE) {
+      ai.lootTarget = nearest;
+      ai.state = BotState.LOOT;
+      ai.stateTime = 0;
+    }
+  } else {
+    // Squad cohesion: if too far from leader, follow
+    const leader = findSquadLeader(e, allEnts);
+    if (leader && e.pos.distanceTo(leader.pos) > SQUAD_FOLLOW_DIST) {
+      ai.state = BotState.FOLLOW_SQUAD;
+    } else if (ai.state !== BotState.LOOT && ai.state !== BotState.FOLLOW_SQUAD) {
+      ai.state = BotState.PATROL;
+    }
+  }
+
+  // ── Execute state ──
+  let target: THREE.Vector3 | null = null;
+  let moveSpeed = SIM.WALK_SPEED;
+
+  switch (ai.state) {
+    case BotState.FLEE_RING:
+      target = new THREE.Vector3(ring.cx, 0, ring.cz);
+      moveSpeed = SIM.SPRINT_SPEED;
+      break;
+
+    case BotState.REVIVE:
+      if (nearestDowned) {
+        target = nearestDowned.pos;
+        if (nearestDownedDist < COMBAT.REVIVE_DIST && !nearestDowned.beingRevived) {
+          nearestDowned.beingRevived = true;
+          nearestDowned.reviver = e;
+        }
+      }
+      break;
+
+    case BotState.ENGAGE:
+      if (nearestEnemy) {
+        target = nearestEnemy.pos;
+        // Strafe slightly while engaging
+        const perpAngle = Math.atan2(-(nearestEnemy.pos.x - e.pos.x), -(nearestEnemy.pos.z - e.pos.z));
+        const strafeDir = Math.sin(time * 2 + e.squadId) > 0 ? 1 : -1;
+        if (nearestEnemyDist < 15) {
+          target = e.pos.clone().add(new THREE.Vector3(
+            Math.cos(perpAngle + Math.PI * 0.5 * strafeDir) * 3,
+            0,
+            Math.sin(perpAngle + Math.PI * 0.5 * strafeDir) * 3,
+          ));
+        }
+      }
+      break;
+
+    case BotState.SEEK_COVER:
+      ai.coverTime += dt;
+      target = ai.coverPos;
+      moveSpeed = SIM.SPRINT_SPEED;
+      if (ai.coverTime > 3) {
+        ai.state = BotState.ENGAGE;
+      }
+      break;
+
+    case BotState.LOOT:
+      if (ai.lootTarget && ai.lootTarget.active) {
+        target = ai.lootTarget.pos;
+        if (e.pos.distanceTo(ai.lootTarget.pos) < 2.5) {
+          // Pick up the loot
+          pickupLoot(e, ai.lootTarget);
+          ai.lootTarget = null;
+          ai.state = BotState.PATROL;
+          ai.stateTime = 0;
+        }
+      } else {
+        ai.lootTarget = null;
+        ai.state = BotState.PATROL;
+      }
+      break;
+
+    case BotState.FOLLOW_SQUAD: {
+      const leader = findSquadLeader(e, allEnts);
+      if (leader) {
+        target = leader.pos;
+        if (e.pos.distanceTo(leader.pos) < 8) {
+          ai.state = BotState.PATROL;
+        }
+      }
+      break;
+    }
+
+    case BotState.PATROL:
+    default:
+      if (!ai.patrolTarget || time - ai.patrolTime > 5) {
+        const a = Math.random() * Math.PI * 2;
+        const d = Math.random() * ring.currentR * 0.5;
+        ai.patrolTarget = new THREE.Vector3(ring.cx + Math.cos(a) * d, 0, ring.cz + Math.sin(a) * d);
+        ai.patrolTime = time;
+      }
+      target = ai.patrolTarget;
+      break;
   }
 
   // ── Move toward target ──
@@ -150,7 +333,7 @@ export function tickBot(
     const dist = Math.sqrt(dx * dx + dz * dz);
     if (dist > 1.5) {
       e.yaw = Math.atan2(-dx, -dz);
-      const spd = (outsideRing ? SIM.SPRINT_SPEED : SIM.WALK_SPEED) * AbilSys.getSpeedMult(e);
+      const spd = moveSpeed * AbilSys.getSpeedMult(e);
       const fd = e.fwd;
       e.vel.x += (fd.x * spd - e.vel.x) * Math.min(dt * 8, 1);
       e.vel.z += (fd.z * spd - e.vel.z) * Math.min(dt * 8, 1);
@@ -160,15 +343,23 @@ export function tickBot(
     }
   }
 
-  // ── Combat ──
+  // ── Combat (can fire in multiple states) ──
   if (nearestEnemy && nearestEnemyDist < BOT_ENGAGE_RANGE && w?.canFire) {
-    (e as any)._ft = ((e as any)._ft || 0) - dt;
-    if ((e as any)._ft <= 0 && col.lineOfSight(e.eye, nearestEnemy.eye)) {
+    if (ai.fireCd <= 0 && col.lineOfSight(e.eye, nearestEnemy.eye)) {
+      // Face enemy when shooting
+      const edx = nearestEnemy.pos.x - e.pos.x;
+      const edz = nearestEnemy.pos.z - e.pos.z;
+      e.yaw = Math.atan2(-edx, -edz);
+
       w.fire(false);
-      (e as any)._ft = BOT_FIRE_CD + Math.random() * 0.3;
-      if (Math.random() < BOT_ACCURACY) {
+      ai.fireCd = BOT_FIRE_CD + Math.random() * 0.3;
+
+      // Distance-based accuracy
+      if (Math.random() < getAccuracy(nearestEnemyDist)) {
         const isHead = Math.random() < 0.1;
-        nearestEnemy.takeDmg(isHead ? w.def.damage.head : w.def.damage.body, e, isHead);
+        const dmg = isHead ? w.def.damage.head : w.def.damage.body;
+        nearestEnemy.takeDmg(dmg, e, isHead);
+        ai.damageDealt += dmg;
       }
     }
     // Auto-reload
@@ -198,4 +389,40 @@ export function tickBot(
   col.resolveHorizontal(e.pos, SIM.PLAYER_RADIUS, e.height);
   e.pos.x = THREE.MathUtils.clamp(e.pos.x, -SIM.MAP_RADIUS, SIM.MAP_RADIUS);
   e.pos.z = THREE.MathUtils.clamp(e.pos.z, -SIM.MAP_RADIUS, SIM.MAP_RADIUS);
+}
+
+/** Find nearest active loot node within range */
+function findNearestLoot(e: Entity, nodes: LootNode[]): LootNode | null {
+  let best: LootNode | null = null;
+  let bestDist = LOOT_RANGE;
+  for (const n of nodes) {
+    if (!n.active) continue;
+    const d = e.pos.distanceTo(n.pos);
+    if (d < bestDist) { bestDist = d; best = n; }
+  }
+  return best;
+}
+
+/** Bot picks up loot from a node */
+function pickupLoot(e: Entity, node: LootNode): void {
+  for (const item of node.items) {
+    if (item.t === 'w') {
+      // Equip weapon if slot empty, otherwise skip
+      if (!e.inv.slots[0]) {
+        e.inv.pickup(applyRarity(WEAPON_DEFS[item.wid], item.r), 0);
+      } else if (!e.inv.slots[1]) {
+        e.inv.pickup(applyRarity(WEAPON_DEFS[item.wid], item.r), 1);
+      }
+    } else if (item.t === 'a') {
+      e.inv.addAmmo(item.at, item.am);
+    }
+  }
+  node.collect();
+  Ev.emit('loot:pickup', {});
+}
+
+/** Get bot stats for scoreboard */
+export function getBotStats(e: Entity): { kills: number; damageDealt: number } {
+  const ai = getAI(e);
+  return { kills: ai.kills, damageDealt: ai.damageDealt };
 }

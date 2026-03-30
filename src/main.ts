@@ -30,12 +30,15 @@ import {
   initHUD, updateHUD, hitTimers, showBanner, spawnDamageNumber,
   addKillFeed, updateDamageNumbers, drawMinimap,
   rebuildInventoryBar, rebuildAmmoHud, rebuildSquadHud,
+  initScoreboard, setScoreboardVisible, renderScoreboard,
   type HUDState,
 } from './ui/hud';
 import {
   initMenus, showMainMenu, hideMainMenu, showHeroSelect, hideHeroSelect,
   showMatchResults,
 } from './ui/menus';
+import { pingSystem, PingType } from './core/ping';
+import { supplyDrops, setSupplyDropBanner } from './world/supplydrop';
 
 /* ═══════════════════════════════════════════════════════════════
    APP STATE
@@ -71,6 +74,13 @@ postFX.init(renderer, scene, camera);
 
 // Particle system
 particles.init(scene);
+
+// Ping system
+pingSystem.init(scene);
+
+// Supply drops
+supplyDrops.init(scene);
+setSupplyDropBanner(showBanner);
 
 // Viewmodel group (attached to camera)
 const vmGroup = new THREE.Group();
@@ -166,6 +176,22 @@ const Spec = {
 // FPS tracking
 const fpsBuffer: number[] = [];
 
+// Match stats tracking
+const matchStats = {
+  kills: new Map<Entity, number>(),
+  damage: new Map<Entity, number>(),
+  startTime: 0,
+  lastRingStage: -1,
+};
+
+function trackKill(killer: Entity | null): void {
+  if (killer) matchStats.kills.set(killer, (matchStats.kills.get(killer) || 0) + 1);
+}
+
+function trackDamage(attacker: Entity | null, amount: number): void {
+  if (attacker) matchStats.damage.set(attacker, (matchStats.damage.get(attacker) || 0) + amount);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    MATCH LOGIC
    ═══════════════════════════════════════════════════════════════ */
@@ -209,6 +235,12 @@ function startMatch(playerHero: string): void {
   Col.targets = [];
   deathBoxes = [];
   lootNodes = [];
+  pingSystem.clear();
+  supplyDrops.clear();
+  matchStats.kills.clear();
+  matchStats.damage.clear();
+  matchStats.startTime = performance.now() / 1000;
+  matchStats.lastRingStage = -1;
 
   // Build world (only once — could optimize to reuse)
   worldObjects = buildWorld(scene, Col);
@@ -307,10 +339,12 @@ Ev.on('entity:damaged', (d: any) => {
     if (d.sd > 0) {
       spawnDamageNumber(d.entity.pos, d.sd, 'sh');
       particles.emitShieldHit(d.entity.pos);
+      trackDamage(d.attacker, d.sd);
     }
     if (d.hd > 0) {
       spawnDamageNumber(d.entity.pos, d.hd, d.isHead ? 'hd' : 'hp');
       particles.emitBloodHit(d.entity.pos);
+      trackDamage(d.attacker, d.hd);
     }
     Audio.play(d.isHead ? 'hit_head' : d.sd > 0 ? 'hit_shield' : 'hit_flesh');
     if (d.sb) Audio.play('shield_break');
@@ -328,6 +362,7 @@ Ev.on('entity:downed', (d: any) => {
 
 Ev.on('kill', (d: any) => {
   addKillFeed(d.victim.name, d.killer?.name || null);
+  trackKill(d.killer);
   if (d.killer === player) { hitTimers.kill = 0.25; Audio.play('kill_confirm'); }
   // Death box
   const db = { pos: d.victim.pos.clone(), ent: d.victim, hasBnr: true,
@@ -370,7 +405,11 @@ Ev.on('ability:explosion', (d: any) => {
   if (player) screenShake.addExplosionShake(player.pos.distanceTo(d.pos));
 });
 
+Ev.on('ping:placed', () => Audio.play('ui_click'));
+Ev.on('supply:incoming', () => Audio.play('ring_warning'));
+
 let ringWarned = false;
+let lastPingTime = 0;
 
 /* ═══════════════════════════════════════════════════════════════
    INIT
@@ -378,6 +417,7 @@ let ringWarned = false;
 
 Input.init(renderer.domElement);
 initHUD();
+initScoreboard();
 initMenus({
   onHeroSelected: (heroId: string) => startMatch(heroId),
   onFiringRange: () => { isFiringRange = true; },
@@ -440,6 +480,19 @@ function gameLoop(now: number): void {
   if (Input.abilQ) AbilSys.activate(player, 'tac', allEntities, scene, Col);
   if (Input.abilZ) AbilSys.activate(player, 'ult', allEntities, scene, Col);
 
+  // ── Ping (middle mouse / V key) ──
+  if (Input.justPressed('KeyV') && player.life === 0 && !player.dropping) {
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const hit = Col.ray(camera.position, dir, 100);
+    if (hit) {
+      // Double-tap V within 0.5s = enemy ping
+      const now = performance.now() / 1000;
+      const pingType = (now - lastPingTime < 0.5) ? PingType.ENEMY : PingType.LOCATION;
+      pingSystem.place(hit.point, pingType);
+      lastPingTime = now;
+    }
+  }
+
   // ── Jump pads ──
   player._padCd = Math.max(0, (player._padCd || 0) - dt);
   if (player._padCd! <= 0 && player.life === 0 && !player.dropping && !player.onZip && worldObjects) {
@@ -481,7 +534,7 @@ function gameLoop(now: number): void {
   // ── Bots ──
   for (const e of allEntities) {
     if (e.isPlayer) continue;
-    tickBot(e, dt, allEntities, time, ring!, worldObjects?.jumpPads || [], Col, scene);
+    tickBot(e, dt, allEntities, time, ring!, worldObjects?.jumpPads || [], Col, scene, lootNodes);
     if (e.life === 1) e.tickDowned(dt);
   }
 
@@ -502,7 +555,16 @@ function gameLoop(now: number): void {
     matchState = MatchState.PLAYING;
     showBanner('DROP ZONE', 'Fight to survive', 3);
   }
-  if (matchState === MatchState.PLAYING) checkSquadWipes();
+  if (matchState === MatchState.PLAYING) {
+    checkSquadWipes();
+    // Supply drop on ring stage change
+    if (ring && ring.stage !== matchStats.lastRingStage && ring.stage >= 0) {
+      matchStats.lastRingStage = ring.stage;
+      if (ring.stage > 0) { // Don't drop on first stage
+        supplyDrops.spawn(ring.cx, ring.cz, ring.currentR, lootNodes);
+      }
+    }
+  }
 
   // ── World tick ──
   for (const l of lootNodes) l.tick(time);
@@ -513,10 +575,44 @@ function gameLoop(now: number): void {
   for (const b of respawnBeacons) {
     b.lt.intensity = b.ok ? 0.3 + Math.sin(time * 2) * 0.1 : 0;
   }
+  supplyDrops.tick(dt, lootNodes);
+  pingSystem.tick(dt, camera);
 
   // ── Spectator ──
   if (player.life === 2 && !Spec.on) Spec.enter(allEntities.filter(e => e.squadId === player!.squadId));
   if (Spec.on && Input.justPressed('Digit1')) Spec.cycle();
+
+  // ── Scoreboard (TAB) ──
+  const tabHeld = Input.isDown('Tab');
+  setScoreboardVisible(tabHeld);
+  if (tabHeld) {
+    const squads = new Map<number, Entity[]>();
+    for (const e of allEntities) {
+      if (!squads.has(e.squadId)) squads.set(e.squadId, []);
+      squads.get(e.squadId)!.push(e);
+    }
+    const sbData = [...squads.entries()].map(([sid, members]) => ({
+      squadId: sid,
+      isPlayerSquad: sid === player!.squadId,
+      members: members.map(e => ({
+        name: e.name,
+        heroName: e.abil.hero.name,
+        kills: matchStats.kills.get(e) || 0,
+        damage: Math.round(matchStats.damage.get(e) || 0),
+        life: e.life,
+        isPlayer: e.isPlayer,
+      })),
+    }));
+    // Sort: player's squad first, then by total kills descending
+    sbData.sort((a, b) => {
+      if (a.isPlayerSquad) return -1;
+      if (b.isPlayerSquad) return 1;
+      const aKills = a.members.reduce((s, m) => s + m.kills, 0);
+      const bKills = b.members.reduce((s, m) => s + m.kills, 0);
+      return bKills - aKills;
+    });
+    renderScoreboard(sbData);
+  }
 
   // ── Screen shake ──
   screenShake.tick(dt);
@@ -618,7 +714,7 @@ function gameLoop(now: number): void {
   rebuildAmmoHud(hudState.ammo);
   drawMinimap(player.pos, player.squadId, allEntities, {
     cx: ring?.cx ?? 0, cz: ring?.cz ?? 0, currentR: ring?.currentR ?? SIM.MAP_RADIUS,
-  }, SIM.MAP_RADIUS);
+  }, SIM.MAP_RADIUS, pingSystem.getActive(), supplyDrops.getActive());
 
   // ── Render (post-processing pipeline) ──
   postFX.render();
