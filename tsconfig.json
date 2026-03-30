@@ -15,7 +15,8 @@
     "paths": {
       "@shared/*": ["./shared/*"]
     },
-    "baseUrl": "."
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*.ts", "shared/**/*.ts"],
   "exclude": ["node_modules", "dist"]

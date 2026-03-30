@@ -197,20 +197,24 @@ export class AudioManager {
   /** Lazily create AudioContext and gain nodes */
   private ensureCtx(): void {
     if (!this.ctx) {
-      this.ctx = new (
+      const ctx = new (
         (window as any).AudioContext || (window as any).webkitAudioContext
-      )();
-      this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.volumes.master;
-      this.masterGain.connect(this.ctx.destination);
+      )() as AudioContext;
+      this.ctx = ctx;
+      const mg = ctx.createGain();
+      mg.gain.value = this.volumes.master;
+      mg.connect(ctx.destination);
+      this.masterGain = mg;
 
-      this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = this.volumes.sfx;
-      this.sfxGain.connect(this.masterGain);
+      const sg = ctx.createGain();
+      sg.gain.value = this.volumes.sfx;
+      sg.connect(mg);
+      this.sfxGain = sg;
 
-      this.uiGain = this.ctx.createGain();
-      this.uiGain.gain.value = this.volumes.ui;
-      this.uiGain.connect(this.masterGain);
+      const ug = ctx.createGain();
+      ug.gain.value = this.volumes.ui;
+      ug.connect(mg);
+      this.uiGain = ug;
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
