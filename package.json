@@ -5,9 +5,11 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
-    "dev": "node --watch server/server.js",
-    "serve": "npx serve client/builds",
-    "play": "npx serve client/builds -o /v6-heroes.html"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "server": "node --watch server/server.js",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "three": "^0.183.2",
